@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AIProvider, InvoiceData, ReceiptData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -136,5 +136,63 @@ Return a JSON object with this structure:
     logger.info('OpenAI: Receipt extracted successfully', { confidence: result.confidence });
 
     return result as ReceiptData;
+  }
+
+  async extractCheck(image: Buffer): Promise<CheckData> {
+    logger.info('OpenAI: Extracting check data from image');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts check payment information from images.
+Extract the following information from the check:
+- Check number (usually in top right or bottom)
+- Payment amount (written numerically and in words)
+- Date written on the check
+- Payee (Pay to the order of)
+- Memo line (if present)
+
+Return a JSON object with this structure:
+{
+  "checkNumber": "string",
+  "amount": number,
+  "date": "YYYY-MM-DD",
+  "payee": "string (optional)",
+  "memo": "string (optional)",
+  "confidence": number (0-1)
+}
+
+Be careful to:
+- Extract the numeric amount accurately
+- Parse the date correctly (handle various formats like MM/DD/YY, MM/DD/YYYY)
+- Identify the check number (usually 3-4 digits)
+- Set confidence based on image clarity and data completeness`;
+
+    const completion = await this.client.chat.completions.create({
+      model: 'gpt-4-vision-preview',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 1000,
+    });
+
+    const result = JSON.parse(completion.choices[0].message.content || '{}');
+    logger.info('OpenAI: Check extracted successfully', {
+      checkNumber: result.checkNumber,
+      amount: result.amount,
+      confidence: result.confidence
+    });
+
+    return result as CheckData;
   }
 }

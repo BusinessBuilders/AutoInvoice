@@ -5,6 +5,7 @@ import { invoiceRouter } from './invoice';
 import { serviceRouter } from './service';
 import { receiptRouter } from './receipt';
 import { smartTemplatesRouter } from './smartTemplates';
+import { checkRouter } from './check';
 
 export const appRouter = router({
   auth: authRouter,
@@ -13,6 +14,7 @@ export const appRouter = router({
   service: serviceRouter,
   receipt: receiptRouter,
   smartTemplates: smartTemplatesRouter,
+  check: checkRouter,
 });
 
 export type AppRouter = typeof appRouter;

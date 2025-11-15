@@ -1,11 +1,11 @@
-import { AIProvider, InvoiceData, ReceiptData } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData } from './types';
 import { OpenAIProvider } from './openai-provider';
 import { AnthropicProvider } from './anthropic-provider';
 import { OllamaProvider } from './ollama-provider';
 import logger from '../../utils/logger';
 import { prisma } from '../../utils/db';
 
-export type AITask = 'parseInvoice' | 'transcribe' | 'generateSpeech' | 'extractReceipt';
+export type AITask = 'parseInvoice' | 'transcribe' | 'generateSpeech' | 'extractReceipt' | 'extractCheck';
 
 export class AIRouter {
   private providers: Map<string, AIProvider>;
@@ -116,6 +116,10 @@ export class AIRouter {
 
   async extractReceipt(image: Buffer, fallbackChain?: string[]): Promise<ReceiptData> {
     return this.execute<ReceiptData>('extractReceipt', [image], fallbackChain);
+  }
+
+  async extractCheck(image: Buffer, fallbackChain?: string[]): Promise<CheckData> {
+    return this.execute<CheckData>('extractCheck', [image], fallbackChain);
   }
 
   private async logInteraction(data: {

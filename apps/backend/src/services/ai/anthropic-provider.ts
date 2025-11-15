@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { AIProvider, InvoiceData, ReceiptData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -117,5 +117,69 @@ JSON structure:
     logger.info('Anthropic: Receipt extracted successfully', { confidence: result.confidence });
 
     return result as ReceiptData;
+  }
+
+  async extractCheck(image: Buffer): Promise<CheckData> {
+    logger.info('Anthropic: Extracting check data from image');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts check payment information from images.
+Extract the following information from the check and return ONLY a JSON object (no other text):
+- Check number (usually in top right or bottom)
+- Payment amount (written numerically and in words)
+- Date written on the check
+- Payee (Pay to the order of)
+- Memo line (if present)
+
+JSON structure:
+{
+  "checkNumber": "string",
+  "amount": number,
+  "date": "YYYY-MM-DD",
+  "payee": "string (optional)",
+  "memo": "string (optional)",
+  "confidence": number (0-1)
+}
+
+Be careful to:
+- Extract the numeric amount accurately
+- Parse the date correctly (handle various formats like MM/DD/YY, MM/DD/YYYY)
+- Identify the check number (usually 3-4 digits)
+- Set confidence based on image clarity and data completeness`;
+
+    const message = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: base64Image,
+              },
+            },
+            {
+              type: 'text',
+              text: systemPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    const content = message.content[0];
+    const result = JSON.parse(content.type === 'text' ? content.text : '{}');
+    logger.info('Anthropic: Check extracted successfully', {
+      checkNumber: result.checkNumber,
+      amount: result.amount,
+      confidence: result.confidence
+    });
+
+    return result as CheckData;
   }
 }

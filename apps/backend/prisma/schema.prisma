@@ -127,6 +127,7 @@ model Invoice {
 
   // Relations
   receipts        Receipt[]
+  check           Check?
   conversations   Conversation[]
 
   createdAt       DateTime  @default(now())
@@ -165,6 +166,7 @@ model Receipt {
   id              String    @id @default(cuid())
   invoiceId       String?
   invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+  userId          String?
 
   // File
   imageUrl        String?
@@ -179,6 +181,7 @@ model Receipt {
   ocrData         Json?     // Raw OCR result
 
   // Metadata
+  status          String    @default("pending") // "pending", "processed", "review_needed"
   processed       Boolean   @default(false)
   confidence      Float?    // OCR confidence
 
@@ -188,6 +191,41 @@ model Receipt {
   @@index([invoiceId])
   @@index([vendor])
   @@index([date])
+  @@index([userId])
+}
+
+model Check {
+  id              String    @id @default(cuid())
+  invoiceId       String?   @unique
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+  userId          String?
+
+  // File
+  imageUrl        String?
+  imageData       Bytes?
+
+  // Extracted Check Data
+  checkNumber     String
+  amount          Decimal
+  date            DateTime
+  payee           String?
+  memo            String?
+  ocrData         Json?     // Raw OCR result
+
+  // Matching & Processing
+  status          String    @default("pending") // "pending", "matched", "processed", "review_needed"
+  matchedAt       DateTime?
+  confidence      Float?    // OCR confidence
+  processed       Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@index([checkNumber])
+  @@index([date])
+  @@index([userId])
+  @@index([amount])
 }
 
 model Conversation {

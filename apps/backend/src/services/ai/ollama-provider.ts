@@ -1,5 +1,5 @@
 import { Ollama } from 'ollama';
-import { AIProvider, InvoiceData, ReceiptData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -84,5 +84,44 @@ JSON structure:
     logger.info('Ollama: Receipt extracted successfully', { confidence: result.confidence });
 
     return result as ReceiptData;
+  }
+
+  async extractCheck(image: Buffer): Promise<CheckData> {
+    logger.info('Ollama: Extracting check data from image (using vision model)');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `Extract check payment information from this image and return ONLY a JSON object:
+{
+  "checkNumber": "string",
+  "amount": number,
+  "date": "YYYY-MM-DD",
+  "payee": "string (optional)",
+  "memo": "string (optional)",
+  "confidence": number (0-1)
+}
+
+Extract:
+- Check number (usually in top right or bottom)
+- Payment amount (written numerically)
+- Date (handle MM/DD/YY or MM/DD/YYYY formats)
+- Payee name
+- Memo if present`;
+
+    const response = await this.client.generate({
+      model: 'llava', // Ollama vision model
+      prompt: systemPrompt,
+      images: [base64Image],
+      format: 'json',
+    });
+
+    const result = JSON.parse(response.response);
+    logger.info('Ollama: Check extracted successfully', {
+      checkNumber: result.checkNumber,
+      amount: result.amount,
+      confidence: result.confidence
+    });
+
+    return result as CheckData;
   }
 }
