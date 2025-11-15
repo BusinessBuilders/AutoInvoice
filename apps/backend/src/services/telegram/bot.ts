@@ -1,107 +1,244 @@
 import { Telegraf, Context } from 'telegraf';
+import { message } from 'telegraf/filters';
 import { env } from '../../utils/env';
 import { aiRouter } from '../ai';
-import { prisma } from '../../utils/db';
 import logger from '../../utils/logger';
+import * as commands from './commands';
+import fetch from 'node-fetch';
 
-// Initialize bot only if token is provided
+/**
+ * Production-Ready Telegram Bot
+ * Full implementation with conversation state, voice processing, and error handling
+ */
+
 let bot: Telegraf | null = null;
 
 if (env.TELEGRAM_BOT_TOKEN) {
   bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
-  // Start command
-  bot.command('start', (ctx: Context) => {
-    ctx.reply(
-      'Welcome to AutoInvoice! 🚀\n\n' +
-        'I can help you create invoices using natural language.\n\n' +
-        'Just tell me about your job, for example:\n' +
-        '"Create an invoice for John Smith, mowed lawn today, $50"\n\n' +
-        'Commands:\n' +
-        '/help - Show this message\n' +
-        '/status - Check invoice status\n' +
-        '/customers - List your customers'
-    );
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // COMMAND HANDLERS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bot.command('start', commands.handleStart);
+  bot.command('help', commands.handleHelp);
+  bot.command('new', commands.handleNew);
+  bot.command('customers', commands.handleCustomers);
+  bot.command('invoices', commands.handleInvoices);
+  bot.command('stats', commands.handleStats);
+  bot.command('pending', commands.handlePending);
+  bot.command('cancel', commands.handleCancel);
+
+  // Search with parameter
+  bot.command('search', (ctx) => {
+    const query = ctx.message.text.replace('/search', '').trim();
+    commands.handleSearch(ctx, query);
   });
 
-  // Help command
-  bot.command('help', (ctx: Context) => {
-    ctx.reply(
-      'AutoInvoice Bot Help:\n\n' +
-        '📝 Create Invoice: Just describe the job in natural language\n' +
-        '📊 /status - View invoice statistics\n' +
-        '👥 /customers - List all customers\n' +
-        '🔍 /search <name> - Search for a customer\n\n' +
-        'Example:\n' +
-        '"Invoice for Mike, cleaned pool yesterday, $75"'
-    );
-  });
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // VOICE MESSAGE HANDLER
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // Handle text messages (invoice creation)
-  bot.on('text', async (ctx: Context) => {
-    const text = ctx.message && 'text' in ctx.message ? ctx.message.text : '';
-
-    if (!text || text.startsWith('/')) {
-      return; // Skip commands
-    }
-
+  bot.on(message('voice'), async (ctx) => {
     try {
-      ctx.reply('🤔 Processing your request...');
+      await ctx.sendChatAction('typing');
+      await ctx.reply('🎤 Transcribing your voice message...');
 
-      // Parse invoice using AI
-      const invoiceData = await aiRouter.parseInvoice(text);
+      const voice = ctx.message.voice;
 
-      // TODO: Create conversation and invoice in database
-      // For now, just show parsed data
-      ctx.reply(
-        `✅ Invoice parsed successfully!\n\n` +
-          `Customer: ${invoiceData.customerName}\n` +
-          `Date: ${invoiceData.serviceDate}\n` +
-          `Confidence: ${(invoiceData.confidence * 100).toFixed(1)}%\n\n` +
-          `Services:\n` +
-          invoiceData.services
-            .map((s) => `• ${s.description}: $${s.amount.toFixed(2)}`)
-            .join('\n') +
-          `\n\nReply "confirm" to create this invoice.`
+      // Get file from Telegram
+      const fileLink = await ctx.telegram.getFileLink(voice.file_id);
+
+      // Download audio file
+      const response = await fetch(fileLink.href);
+      const audioBuffer = Buffer.from(await response.arrayBuffer());
+
+      logger.info('Voice message received', {
+        fileId: voice.file_id,
+        duration: voice.duration,
+        size: audioBuffer.length
+      });
+
+      // Transcribe using AI router (will try Whisper -> fallbacks)
+      const transcription = await aiRouter.transcribe(audioBuffer);
+
+      await ctx.reply(
+        `📝 Transcription:\n\n"${transcription}"\n\n` +
+        `Processing as invoice...`
       );
-    } catch (error) {
-      logger.error('Telegram bot error:', error);
-      ctx.reply('❌ Sorry, I could not process that request. Please try again.');
-    }
-  });
 
-  // Handle voice messages
-  bot.on('voice', async (ctx: Context) => {
-    try {
-      ctx.reply('🎤 Transcribing voice message...');
+      // Process as text message (reuse text handler logic)
+      const fakeContext = {
+        ...ctx,
+        message: {
+          ...ctx.message,
+          text: transcription
+        }
+      } as Context;
 
-      // TODO: Download and transcribe voice message
-      ctx.reply('Voice message transcription is coming soon!');
-    } catch (error) {
+      await commands.handleTextMessage(fakeContext);
+
+    } catch (error: any) {
       logger.error('Telegram voice error:', error);
-      ctx.reply('❌ Sorry, I could not process that voice message.');
+      await ctx.reply(
+        `❌ Voice processing failed.\n\n` +
+        `Error: ${error.message}\n\n` +
+        `Please try typing your message instead.`
+      );
     }
   });
 
-  logger.info('✅ Telegram bot initialized');
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // TEXT MESSAGE HANDLER
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bot.on(message('text'), commands.handleTextMessage);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PHOTO HANDLER (Receipt OCR)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bot.on(message('photo'), async (ctx) => {
+    try {
+      await ctx.sendChatAction('typing');
+      await ctx.reply('📷 Processing receipt image...');
+
+      // Get the largest photo
+      const photo = ctx.message.photo[ctx.message.photo.length - 1];
+
+      // Get file from Telegram
+      const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+
+      // Download image
+      const response = await fetch(fileLink.href);
+      const imageBuffer = Buffer.from(await response.arrayBuffer());
+
+      logger.info('Photo received for OCR', {
+        fileId: photo.file_id,
+        size: imageBuffer.length
+      });
+
+      // Extract receipt data using AI vision
+      const receiptData = await aiRouter.extractReceipt(imageBuffer);
+
+      await ctx.reply(
+        `✅ Receipt Extracted!\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `🏪 Vendor: ${receiptData.vendor}\n` +
+        `💰 Amount: $${receiptData.amount.toFixed(2)}\n` +
+        `📅 Date: ${receiptData.date}\n` +
+        `📁 Category: ${receiptData.category || 'N/A'}\n` +
+        `🎯 Confidence: ${(receiptData.confidence * 100).toFixed(1)}%\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Reply "save" to save this receipt.`
+      );
+
+      // Store in conversation state for confirmation
+      commands.conversationState.set(ctx.from.id, {
+        step: 'awaiting_confirmation',
+        data: { type: 'receipt', receiptData, imageBuffer }
+      });
+
+    } catch (error: any) {
+      logger.error('Telegram photo OCR error:', error);
+      await ctx.reply(
+        `❌ Receipt processing failed.\n\n` +
+        `Error: ${error.message}\n\n` +
+        `Please try a clearer photo.`
+      );
+    }
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ERROR HANDLING
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bot.catch((error: any, ctx: Context) => {
+    logger.error('Telegram bot error:', {
+      error: error.message,
+      stack: error.stack,
+      update: ctx.update
+    });
+
+    ctx.reply(
+      `❌ An error occurred.\n\n` +
+      `Please try again or use /help for assistance.`
+    ).catch(() => {
+      // Ignore errors when trying to send error message
+    });
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // BOT INFO
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  bot.telegram.getMe().then((botInfo) => {
+    logger.info('✅ Telegram bot initialized', {
+      username: botInfo.username,
+      name: botInfo.first_name,
+      id: botInfo.id
+    });
+  }).catch((error) => {
+    logger.error('Failed to get bot info:', error);
+  });
+
 } else {
   logger.warn('⚠️  Telegram bot token not provided, bot disabled');
 }
 
 export { bot };
 
-// Start bot
+/**
+ * Start the Telegram bot
+ */
 export function startTelegramBot() {
   if (bot) {
-    bot.launch();
-    logger.info('🤖 Telegram bot started');
+    bot.launch({
+      dropPendingUpdates: true // Ignore old messages on startup
+    }).then(() => {
+      logger.info('🤖 Telegram bot started and listening for messages');
+    }).catch((error) => {
+      logger.error('Failed to start Telegram bot:', error);
+    });
   }
 }
 
-// Stop bot gracefully
+/**
+ * Stop the Telegram bot gracefully
+ */
 export function stopTelegramBot() {
   if (bot) {
     bot.stop('SIGINT');
     logger.info('🤖 Telegram bot stopped');
+  }
+}
+
+/**
+ * Set webhook for production deployment
+ */
+export async function setTelegramWebhook(webhookUrl: string) {
+  if (bot) {
+    try {
+      await bot.telegram.setWebhook(webhookUrl);
+      logger.info('✅ Telegram webhook set', { url: webhookUrl });
+    } catch (error) {
+      logger.error('Failed to set webhook:', error);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Remove webhook (use for polling mode)
+ */
+export async function removeTelegramWebhook() {
+  if (bot) {
+    try {
+      await bot.telegram.deleteWebhook();
+      logger.info('✅ Telegram webhook removed');
+    } catch (error) {
+      logger.error('Failed to remove webhook:', error);
+      throw error;
+    }
   }
 }
