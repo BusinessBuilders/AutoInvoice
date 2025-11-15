@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { trpc } from '@/lib/trpc';
 
 interface ExtractedReceipt {
   vendor: string;
@@ -61,6 +62,8 @@ export default function ReceiptUploadPage() {
     }
   };
 
+  const uploadReceipt = trpc.receipt.upload.useMutation();
+
   const processReceipt = async () => {
     if (!imageFile) return;
 
@@ -68,25 +71,26 @@ export default function ReceiptUploadPage() {
     setError('');
 
     try {
-      // TODO: Call tRPC endpoint for OCR
-      // For now, simulate processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Convert file to base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(imageFile);
+      });
 
-      // Mock extracted data
-      const mockData: ExtractedReceipt = {
-        vendor: 'Home Depot',
-        amount: 147.83,
-        date: new Date().toISOString(),
-        category: 'Materials',
-        items: [
-          { description: 'Paint (5 gal)', amount: 89.99 },
-          { description: 'Brushes & Rollers', amount: 34.50 },
-          { description: 'Drop Cloth', amount: 23.34 },
-        ],
-        confidence: 0.94,
-      };
+      const imageBase64 = await base64Promise;
 
-      setExtractedData(mockData);
+      // Upload and process
+      const result = await uploadReceipt.mutateAsync({
+        imageBase64,
+        filename: imageFile.name,
+      });
+
+      setExtractedData(result.extractedData as ExtractedReceipt);
     } catch (err: any) {
       setError(err.message || 'Failed to process receipt');
     } finally {

@@ -29,6 +29,7 @@ export default function QuickInvoicePage() {
     }
   }, [customerId, customers]);
 
+  const parseInvoice = trpc.smartTemplates.parseQuickInvoice.useMutation();
   const createInvoice = trpc.invoice.create.useMutation({
     onSuccess: (data) => {
       router.push(`/invoices/${data.id}`);
@@ -43,24 +44,11 @@ export default function QuickInvoicePage() {
     setParsed(null);
 
     try {
-      // TODO: Call smart templates parseQuickInvoice API
-      // For now, simulate parsing
-      setTimeout(() => {
-        // Mock parsed result
-        setParsed({
-          customer: { id: '1', name: 'Blair Property', email: 'blair@example.com' },
-          service: { id: '1', name: 'Hydroseeding', code: 'HYDROSEED' },
-          quantity: 9999,
-          unit: 'sqft',
-          rate: 0.12,
-          total: 1199.88,
-          date: new Date(),
-          confidence: 0.95,
-        });
-        setIsParsing(false);
-      }, 1000);
+      const result = await parseInvoice.mutateAsync({ text: input });
+      setParsed(result);
     } catch (err: any) {
       setError(err.message || 'Failed to parse invoice');
+    } finally {
       setIsParsing(false);
     }
   };

@@ -242,41 +242,56 @@ export async function setCustomerPricing(
   price: number,
   unit?: string
 ): Promise<void> {
-  // Find customer
-  const customer = await findCustomer(customerNameOrId);
-  if (!customer) {
-    throw new Error(`Customer "${customerNameOrId}" not found`);
+  // Check if it's an ID (UUID format) or name
+  const isCustomerId = customerNameOrId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  const isServiceId = serviceCodeOrName.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+  let customerId: string;
+  let serviceId: string;
+
+  if (isCustomerId) {
+    customerId = customerNameOrId;
+  } else {
+    const customer = await findCustomer(customerNameOrId);
+    if (!customer) {
+      throw new Error(`Customer "${customerNameOrId}" not found`);
+    }
+    customerId = customer.id;
   }
 
-  // Find service
-  const service = await findService(serviceCodeOrName);
-  if (!service) {
-    throw new Error(`Service "${serviceCodeOrName}" not found`);
+  if (isServiceId) {
+    serviceId = serviceCodeOrName;
+  } else {
+    const service = await findService(serviceCodeOrName);
+    if (!service) {
+      throw new Error(`Service "${serviceCodeOrName}" not found`);
+    }
+    serviceId = service.id;
   }
 
   // Create or update price override
   await prisma.priceOverride.upsert({
     where: {
       customerId_serviceId: {
-        customerId: customer.id,
-        serviceId: service.id,
+        customerId,
+        serviceId,
       },
     },
     create: {
-      customerId: customer.id,
-      serviceId: service.id,
+      customerId,
+      serviceId,
       price,
-      unit: unit || service.priceUnit,
+      unit,
     },
     update: {
       price,
-      unit: unit || service.priceUnit,
+      unit,
     },
   });
 
   logger.info('Customer pricing set', {
-    customer: customer.name,
-    service: service.name,
+    customerId,
+    serviceId,
     price,
     unit,
   });

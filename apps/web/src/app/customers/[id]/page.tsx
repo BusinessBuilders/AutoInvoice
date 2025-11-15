@@ -29,6 +29,12 @@ export default function CustomerDetailPage() {
     },
   });
 
+  const setPricingMutation = trpc.smartTemplates.setCustomerPricing.useMutation({
+    onSuccess: () => {
+      utils.customer.getById.invalidate({ id: customerId });
+    },
+  });
+
   const handleDelete = () => {
     if (confirm(`Are you sure you want to delete ${customer?.name}?`)) {
       deleteCustomer.mutate({ id: customerId });
@@ -330,13 +336,28 @@ export default function CustomerDetailPage() {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  // TODO: Add mutation for custom pricing
-                  setShowPricingModal(false);
+                onClick={async () => {
+                  if (!pricingForm.serviceId || !pricingForm.price) {
+                    alert('Please select a service and enter a price');
+                    return;
+                  }
+                  try {
+                    await setPricingMutation.mutateAsync({
+                      customerId,
+                      serviceId: pricingForm.serviceId,
+                      price: parseFloat(pricingForm.price),
+                      unit: pricingForm.unit,
+                    });
+                    setShowPricingModal(false);
+                    setPricingForm({ serviceId: '', price: '', unit: '' });
+                  } catch (err: any) {
+                    alert(`Error: ${err.message}`);
+                  }
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+                disabled={setPricingMutation.isLoading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                Save
+                {setPricingMutation.isLoading ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
