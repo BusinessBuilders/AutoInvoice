@@ -20,7 +20,7 @@ export default function Home() {
         </div>
 
         {/* Quick Actions */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <Link
             href="/quick"
             className="relative group bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
@@ -30,6 +30,19 @@ export default function Home() {
               <div className="ml-4">
                 <h3 className="text-lg font-semibold text-white">Quick Invoice</h3>
                 <p className="text-sm text-green-100">Natural language entry</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/receipts/upload"
+            className="relative group bg-gradient-to-br from-orange-500 to-red-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">📷</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Upload Receipt</h3>
+                <p className="text-sm text-orange-100">AI-powered OCR</p>
               </div>
             </div>
           </Link>
