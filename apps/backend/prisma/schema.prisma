@@ -52,6 +52,8 @@ model Customer {
   locations       Location[]
   conversations   Conversation[]
   priceOverrides  PriceOverride[]
+  quotes          Quote[]
+  leads           Lead[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -129,6 +131,7 @@ model Invoice {
   receipts        Receipt[]
   check           Check?
   conversations   Conversation[]
+  quotes          Quote[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -349,4 +352,295 @@ enum InvoiceStatus {
   PAID
   OVERDUE
   CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LEAD MANAGEMENT & SCHEDULING - NEW FEATURES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Lead {
+  id              String    @id @default(cuid())
+  userId          String?
+
+  // Contact Info
+  name            String
+  phone           String
+  email           String?
+  source          String    @default("sms") // "sms", "call", "email", "web", "referral"
+
+  // Lead Details
+  message         String?   // Initial message/inquiry
+  projectType     String?   // "hydroseed", "lawn-mowing", "fertilizer", etc.
+  estimatedArea   Int?      // Square footage
+  estimatedValue  Decimal?  // Potential $ value
+
+  // Status Tracking
+  status          LeadStatus @default(NEW)
+  priority        Priority   @default(MEDIUM)
+
+  // Follow-up Tracking
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+  followUpCount   Int       @default(0)
+
+  // Conversion
+  convertedToCustomerId String?
+  convertedToCustomer   Customer? @relation(fields: [convertedToCustomerId], references: [id])
+  convertedToQuoteId    String?
+  convertedToQuote      Quote?    @relation(fields: [convertedToQuoteId], references: [id])
+  convertedAt     DateTime?
+
+  // Relations
+  reminders       Reminder[]
+  followUps       FollowUp[]
+  quotes          Quote[]
+  notes           LeadNote[]
+
+  // Metadata
+  tags            String[]
+  customFields    Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([phone])
+  @@index([status])
+  @@index([nextFollowUpAt])
+  @@index([createdAt])
+}
+
+model Reminder {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  // Reminder Details
+  title           String
+  description     String?
+  remindAt        DateTime
+
+  // Status
+  status          ReminderStatus @default(PENDING)
+  completedAt     DateTime?
+  snoozedUntil    DateTime?
+
+  // Notification
+  notifyVia       String[]  // ["sms", "email", "push", "in-app"]
+  notifiedAt      DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([remindAt])
+  @@index([status])
+}
+
+model FollowUp {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  // Follow-up Details
+  type            FollowUpType
+  scheduledFor    DateTime
+  message         String?   // Pre-written message template
+
+  // Status
+  status          FollowUpStatus @default(SCHEDULED)
+  attemptedAt     DateTime?
+  completedAt     DateTime?
+
+  // Result
+  contacted       Boolean   @default(false)
+  response        String?   // What they said
+  outcome         String?   // "interested", "not-interested", "callback-later", "converted"
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([scheduledFor])
+  @@index([status])
+}
+
+model Quote {
+  id              String    @id @default(cuid())
+  quoteNumber     String    @unique
+  leadId          String?
+  lead            Lead?     @relation(fields: [leadId], references: [id])
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  userId          String?
+
+  // Project Details
+  projectType     String    // "hydroseed", "lawn-mowing", etc.
+  area            Int?      // Square footage
+  description     String?
+
+  // Pricing
+  lineItems       QuoteLineItem[]
+  subtotal        Decimal
+  taxRate         Decimal   @default(0)
+  taxAmount       Decimal   @default(0)
+  discount        Decimal   @default(0)
+  total           Decimal
+
+  // Validity
+  validUntil      DateTime
+  expiresAt       DateTime?
+
+  // Status
+  status          QuoteStatus @default(DRAFT)
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+
+  // Conversion
+  convertedToInvoiceId String?
+  convertedToInvoice   Invoice? @relation(fields: [convertedToInvoiceId], references: [id])
+  convertedAt     DateTime?
+
+  // Files
+  pdfUrl          String?
+
+  // Metadata
+  notes           String?
+  terms           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([customerId])
+  @@index([status])
+  @@index([validUntil])
+}
+
+model QuoteLineItem {
+  id              String    @id @default(cuid())
+  quoteId         String
+  quote           Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  description     String
+  quantity        Decimal
+  unit            String?   // "sqft", "hour", "unit"
+  rate            Decimal
+  amount          Decimal
+
+  order           Int
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([quoteId])
+}
+
+model LeadNote {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  content         String
+  type            String    @default("note") // "note", "call", "meeting", "email"
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+// SMS/Communication Log
+model SmsMessage {
+  id              String    @id @default(cuid())
+  userId          String?
+  leadId          String?
+
+  // Message Details
+  from            String    // Phone number
+  to              String    // Phone number
+  body            String
+  direction       Direction // INBOUND or OUTBOUND
+
+  // Twilio Data
+  twilioSid       String?   @unique
+  status          String?   // "queued", "sent", "delivered", "failed"
+  errorCode       String?
+  errorMessage    String?
+
+  // Metadata
+  mediaUrls       String[]  // Attached images
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([leadId])
+  @@index([from])
+  @@index([to])
+  @@index([createdAt])
+}
+
+// Enums for Lead Management
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  QUOTED
+  NEGOTIATING
+  WON
+  LOST
+  DEAD
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ReminderStatus {
+  PENDING
+  SNOOZED
+  COMPLETED
+  CANCELLED
+}
+
+enum FollowUpType {
+  INITIAL_CONTACT
+  FOLLOW_UP_1
+  FOLLOW_UP_2
+  FOLLOW_UP_3
+  FINAL_ATTEMPT
+  CUSTOM
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
 }
