@@ -14,11 +14,20 @@ model User {
   email           String    @unique
   password        String
   name            String
+  role            UserRole  @default(OWNER)
+  phone           String?
+  active          Boolean   @default(true)
+
+  // Relations
+  assignedTasks   Task[]    @relation("AssignedTo")
+  createdTasks    Task[]    @relation("CreatedBy")
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([email])
+  @@index([role])
+  @@index([active])
 }
 
 model Customer {
@@ -643,4 +652,78 @@ enum QuoteStatus {
 enum Direction {
   INBOUND
   OUTBOUND
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TEAM & TASK MANAGEMENT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Task {
+  id              String    @id @default(cuid())
+
+  // What needs to be done
+  title           String
+  description     String?
+  type            TaskType  @default(FOLLOW_UP)
+
+  // Assignment
+  assignedToId    String?
+  assignedTo      User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  createdById     String
+  createdBy       User      @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // References
+  leadId          String?
+  customerId      String?
+  invoiceId       String?
+
+  // Scheduling
+  dueDate         DateTime?
+  scheduledFor    DateTime?
+  completedAt     DateTime?
+
+  // Status
+  status          TaskStatus @default(TODO)
+  priority        Priority   @default(MEDIUM)
+
+  // Notes
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@index([dueDate])
+  @@index([scheduledFor])
+  @@index([leadId])
+  @@index([customerId])
+  @@index([invoiceId])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  EMPLOYEE
+  VIEWER
+}
+
+enum TaskType {
+  FOLLOW_UP
+  QUOTE
+  SCHEDULE_JOB
+  CALL_CUSTOMER
+  SEND_INVOICE
+  COLLECT_PAYMENT
+  SITE_VISIT
+  OTHER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  WAITING
+  COMPLETED
+  CANCELLED
 }
