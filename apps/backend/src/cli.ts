@@ -27,6 +27,8 @@ import { sendInvoiceEmail } from './services/google/gmail';
 import { getAuthUrl } from './services/google/oauth';
 import { startTelegramBot } from './services/telegram/bot';
 import { initializeWorkers } from './services/queue';
+import { generateInvoicePdf } from './services/pdf/professional-generator';
+import * as smartTemplates from './services/smart-templates';
 import logger from './utils/logger';
 import bcrypt from 'bcryptjs';
 import * as fs from 'fs';
@@ -343,6 +345,214 @@ program
         }
         console.log(`\n✅ Cleanup complete!`);
       }
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// QUICK INVOICE ENTRY (SMART TEMPLATES)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+program
+  .command('quick')
+  .description('Quick invoice from natural language')
+  .argument('<text>', 'Invoice description (e.g., "9999 sqft hydroseed for Blair today")')
+  .option('-p, --pdf', 'Generate PDF immediately')
+  .option('-o, --output <path>', 'PDF output path')
+  .action(async (text: string, options) => {
+    try {
+      console.log('🚀 Creating quick invoice...\n');
+
+      const invoice = await smartTemplates.createQuickInvoice({ text });
+
+      console.log('✅ Invoice Created!\n');
+      console.log(`📄 Invoice #: ${invoice.invoiceNumber}`);
+      console.log(`👤 Customer: ${invoice.customer.name}`);
+      console.log(`💰 Total: $${invoice.total.toFixed(2)}`);
+      console.log(`📅 Date: ${invoice.serviceDate.toLocaleDateString()}\n`);
+
+      if (options.pdf) {
+        console.log('📄 Generating PDF...');
+        const pdfBuffer = await generateInvoicePdf({
+          invoiceId: invoice.id,
+          template: 'professional',
+        });
+
+        const outputPath = options.output || `./invoices/${invoice.invoiceNumber}.pdf`;
+        const dir = path.dirname(outputPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+
+        fs.writeFileSync(outputPath, pdfBuffer);
+        console.log(`✅ PDF saved: ${outputPath}\n`);
+      }
+
+      console.log('💡 Next steps:');
+      console.log(`   • Generate PDF: npm run cli pdf ${invoice.id}`);
+      console.log(`   • Send email: npm run cli invoice:send ${invoice.id}\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      console.log('\n💡 Tips:');
+      console.log('   • Make sure customer exists: npm run cli customer:add');
+      console.log('   • Make sure service exists: npm run cli service:add');
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+program
+  .command('customer:add')
+  .description('Quick add customer')
+  .argument('<name>', 'Customer name')
+  .option('-e, --email <email>', 'Email address')
+  .option('-p, --phone <phone>', 'Phone number')
+  .option('-a, --address <address>', 'Street address')
+  .option('-n, --nickname <nicknames...>', 'Nicknames (space separated)')
+  .action(async (name: string, options) => {
+    try {
+      const customer = await smartTemplates.quickAddCustomer({
+        name,
+        email: options.email,
+        phone: options.phone,
+        address: options.address,
+        nickname: options.nickname || [name],
+      });
+
+      console.log('\n✅ Customer added!\n');
+      console.log(`   Name: ${customer.name}`);
+      console.log(`   ID: ${customer.id}`);
+      if (customer.email) console.log(`   Email: ${customer.email}`);
+      if (customer.phone) console.log(`   Phone: ${customer.phone}`);
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+program
+  .command('service:add')
+  .description('Quick add service')
+  .argument('<name>', 'Service name')
+  .argument('<code>', 'Service code (e.g., HYDROSEED)')
+  .argument('<category>', 'Category (e.g., Landscaping)')
+  .option('-p, --price <price>', 'Base price per unit')
+  .option('-u, --unit <unit>', 'Price unit (e.g., sqft, hour)', 'unit')
+  .action(async (name: string, code: string, category: string, options) => {
+    try {
+      const service = await smartTemplates.quickAddService({
+        name,
+        code: code.toUpperCase(),
+        category,
+        basePrice: options.price ? parseFloat(options.price) : undefined,
+        priceUnit: options.unit,
+      });
+
+      console.log('\n✅ Service added!\n');
+      console.log(`   Name: ${service.name}`);
+      console.log(`   Code: ${service.code}`);
+      console.log(`   Category: ${service.category}`);
+      if (service.basePrice) console.log(`   Price: $${service.basePrice}/${service.priceUnit}`);
+      console.log('');
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+program
+  .command('pricing:set')
+  .description('Set customer-specific pricing')
+  .argument('<customer>', 'Customer name')
+  .argument('<service>', 'Service name or code')
+  .argument('<price>', 'Price per unit')
+  .option('-u, --unit <unit>', 'Price unit override')
+  .action(async (customer: string, service: string, price: string, options) => {
+    try {
+      await smartTemplates.setCustomerPricing(
+        customer,
+        service,
+        parseFloat(price),
+        options.unit
+      );
+
+      console.log('\n✅ Custom pricing set!\n');
+      console.log(`   Customer: ${customer}`);
+      console.log(`   Service: ${service}`);
+      console.log(`   Price: $${price}${options.unit ? `/${options.unit}` : ''}\n`);
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+program
+  .command('pricing:show')
+  .description('Show customer pricing')
+  .argument('<customer>', 'Customer name')
+  .action(async (customer: string) => {
+    try {
+      const pricing = await smartTemplates.getCustomerPricing(customer);
+
+      console.log(`\n💰 Pricing for ${customer}:\n`);
+
+      if (pricing.length === 0) {
+        console.log('   No custom pricing set. Using default prices.\n');
+      } else {
+        pricing.forEach((p) => {
+          console.log(`   ${p.service} (${p.code})`);
+          console.log(`      Custom:  $${p.customPrice}/${p.unit}`);
+          console.log(`      Default: $${p.defaultPrice}/${p.unit}\n`);
+        });
+      }
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
+      process.exit(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+program
+  .command('pdf')
+  .description('Generate PDF for existing invoice')
+  .argument('<invoice-id>', 'Invoice ID')
+  .option('-t, --template <template>', 'Template (professional, minimal, standard)', 'professional')
+  .option('-o, --output <path>', 'Output path')
+  .action(async (invoiceId: string, options) => {
+    try {
+      console.log('📄 Generating PDF...');
+
+      const pdfBuffer = await generateInvoicePdf({
+        invoiceId,
+        template: options.template,
+      });
+
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        select: { invoiceNumber: true },
+      });
+
+      const outputPath = options.output || `./invoices/${invoice?.invoiceNumber || invoiceId}.pdf`;
+      const dir = path.dirname(outputPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      fs.writeFileSync(outputPath, pdfBuffer);
+      console.log(`✅ PDF saved: ${outputPath}`);
     } catch (error: any) {
       console.error('❌ Error:', error.message);
       process.exit(1);
