@@ -1,0 +1,314 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String
+  name            String
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([email])
+}
+
+model Customer {
+  id              String    @id @default(cuid())
+  name            String
+  email           String?   @unique
+  phone           String?   @unique
+  company         String?
+  nickname        String[]  // Array of nicknames
+
+  // Address
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  coordinates     Json?     // {lat, lng}
+
+  // Billing
+  defaultRate     Decimal?
+  paymentTerms    String    @default("NET30")
+  taxExempt       Boolean   @default(false)
+
+  // Metadata
+  notes           String?
+  tags            String[]
+  customFields    Json?
+
+  // Relations
+  invoices        Invoice[]
+  locations       Location[]
+  conversations   Conversation[]
+  priceOverrides  PriceOverride[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@index([name])
+}
+
+model Service {
+  id              String    @id @default(cuid())
+  name            String
+  code            String    @unique
+  category        String
+  description     String?
+
+  // Pricing
+  basePrice       Decimal?
+  priceUnit       String?   // "sqft", "hour", "unit"
+
+  // Relations
+  lineItems       LineItem[]
+  priceOverrides  PriceOverride[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([code])
+  @@index([category])
+}
+
+model Invoice {
+  id              String    @id @default(cuid())
+  invoiceNumber   String    @unique
+
+  // Customer
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  // Location
+  locationId      String?
+  location        Location? @relation(fields: [locationId], references: [id])
+  serviceAddress  String?
+
+  // Dates
+  serviceDate     DateTime
+  issueDate       DateTime  @default(now())
+  dueDate         DateTime
+  paidDate        DateTime?
+
+  // Status
+  status          InvoiceStatus @default(DRAFT)
+
+  // Financial
+  subtotal        Decimal
+  taxRate         Decimal   @default(0)
+  taxAmount       Decimal   @default(0)
+  discount        Decimal   @default(0)
+  total           Decimal
+
+  // Content
+  lineItems       LineItem[]
+  notes           String?
+  terms           String?
+
+  // Files
+  pdfUrl          String?
+  pdfData         Bytes?
+
+  // Source
+  source          String?   // "voice", "telegram", "web", "cli"
+  sourceMessageId String?
+
+  // Relations
+  receipts        Receipt[]
+  conversations   Conversation[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sentAt          DateTime?
+
+  @@index([customerId])
+  @@index([status])
+  @@index([serviceDate])
+  @@index([invoiceNumber])
+}
+
+model LineItem {
+  id              String    @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  serviceId       String?
+  service         Service?  @relation(fields: [serviceId], references: [id])
+
+  description     String
+  quantity        Decimal
+  unit            String?
+  rate            Decimal
+  amount          Decimal
+
+  order           Int
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+}
+
+model Receipt {
+  id              String    @id @default(cuid())
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  // File
+  imageUrl        String?
+  imageData       Bytes?
+
+  // Extracted Data
+  vendor          String
+  amount          Decimal
+  date            DateTime
+  category        String?
+  items           Json?     // Array of items
+  ocrData         Json?     // Raw OCR result
+
+  // Metadata
+  processed       Boolean   @default(false)
+  confidence      Float?    // OCR confidence
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@index([vendor])
+  @@index([date])
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  // Channel
+  channel         String    // "telegram", "voice", "web", "cli"
+  channelUserId   String?
+
+  // Content
+  messages        Message[]
+  context         Json?     // Conversation context
+
+  // Status
+  status          String    @default("active")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([channelUserId])
+}
+
+model Message {
+  id              String    @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role            String    // "user", "assistant", "system"
+  content         String
+
+  // For voice messages
+  audioUrl        String?
+  transcription   String?
+
+  // AI Processing
+  intent          Json?     // Parsed intent
+  entities        Json?     // Extracted entities
+  confidence      Float?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([conversationId])
+}
+
+model Location {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  name            String
+  addressLine1    String
+  addressLine2    String?
+  city            String
+  state           String
+  zipCode         String
+
+  coordinates     Json?     // {lat, lng}
+
+  // Size/Details
+  squareFeet      Int?
+  notes           String?
+  accessCodes     String?
+
+  invoices        Invoice[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+}
+
+model PriceOverride {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  serviceId       String
+  service         Service   @relation(fields: [serviceId], references: [id])
+
+  price           Decimal
+  unit            String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([customerId, serviceId])
+}
+
+model AIInteraction {
+  id              String    @id @default(cuid())
+
+  // Request
+  input           String
+  model           String
+  provider        String    // "openai", "anthropic", "ollama"
+
+  // Response
+  output          Json
+  tokensUsed      Int?
+  cost            Decimal?
+  latencyMs       Int?
+
+  // Status
+  success         Boolean
+  error           String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([provider])
+  @@index([createdAt])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  CANCELLED
+}
