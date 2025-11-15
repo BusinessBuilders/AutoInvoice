@@ -1,0 +1,29 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: autoinvoice-ingress
+  namespace: autoinvoice
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/proxy-body-size: "20m"
+spec:
+  tls:
+    - hosts:
+        - autoinvoice.app
+        - api.autoinvoice.app
+      secretName: autoinvoice-tls
+  rules:
+    - host: api.autoinvoice.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: autoinvoice-backend
+                port:
+                  number: 4000

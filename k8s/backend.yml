@@ -1,0 +1,129 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoinvoice-backend
+  namespace: autoinvoice
+  labels:
+    app: autoinvoice-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: autoinvoice-backend
+  template:
+    metadata:
+      labels:
+        app: autoinvoice-backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/yourusername/autoinvoice:latest
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - configMapRef:
+                name: autoinvoice-config
+            - secretRef:
+                name: autoinvoice-secrets
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: invoices
+              mountPath: /app/invoices
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: uploads-pvc
+        - name: invoices
+          persistentVolumeClaim:
+            claimName: invoices-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autoinvoice-backend
+  namespace: autoinvoice
+spec:
+  selector:
+    app: autoinvoice-backend
+  ports:
+    - port: 4000
+      targetPort: 4000
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: uploads-pvc
+  namespace: autoinvoice
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: invoices-pvc
+  namespace: autoinvoice
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: autoinvoice-backend-hpa
+  namespace: autoinvoice
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: autoinvoice-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autoinvoice-config
+  namespace: autoinvoice
+data:
+  NODE_ENV: "production"
+  PORT: "4000"
+  FRONTEND_URL: "https://autoinvoice.app"
+  REDIS_URL: "redis://autoinvoice-redis:6379"
+  OLLAMA_URL: "http://ollama:11434"
+  OLLAMA_MODEL: "llama2"
+  MAX_FILE_SIZE: "10485760"
+  UPLOAD_DIR: "/app/uploads"
