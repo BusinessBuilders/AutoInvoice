@@ -19,8 +19,9 @@ export default function RootLayout() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <Stack>
-          <Stack.Screen name="index" options={{ title: 'Dashboard' }} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="lead/[id]" options={{ headerShown: true, title: 'Lead Details' }} />
         </Stack>
       </QueryClientProvider>
     </trpc.Provider>

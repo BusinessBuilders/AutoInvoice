@@ -23,13 +23,32 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.autoinvoice.app"
+      "package": "com.autoinvoice.app",
+      "permissions": [
+        "READ_SMS",
+        "SEND_SMS",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "READ_CONTACTS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow AutoInvoice to access your calendar for scheduling follow-ups."
+        }
+      ],
+      [
+        "expo-sms",
+        {
+          "smsPermission": "Allow AutoInvoice to read messages for lead management."
+        }
+      ]
     ],
     "scheme": "autoinvoice",
     "experiments": {
