@@ -18,9 +18,9 @@ export const emailSendingWorker = new Worker<EmailSendingJob>(
     logger.info(`Processing email sending for invoice: ${invoiceId} to ${recipientEmail}`);
 
     try {
-      // TODO: Implement email sending using Gmail API
-      // For now, just log
-      logger.info(`Email would be sent to ${recipientEmail}: ${subject}`);
+      // Send email using Gmail API
+      const { sendInvoiceEmail } = await import('../../google/gmail');
+      await sendInvoiceEmail(invoiceId);
 
       // Update invoice status
       await prisma.invoice.update({
@@ -30,6 +30,8 @@ export const emailSendingWorker = new Worker<EmailSendingJob>(
           status: 'SENT',
         },
       });
+
+      logger.info(`Email sent successfully to ${recipientEmail}`);
 
       return { success: true, invoiceId, recipientEmail };
     } catch (error) {

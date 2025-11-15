@@ -31,6 +31,18 @@ export const ReceiptDataSchema = z.object({
 
 export type ReceiptData = z.infer<typeof ReceiptDataSchema>;
 
+// Check payment data structure
+export const CheckDataSchema = z.object({
+  checkNumber: z.string(),
+  amount: z.number(),
+  date: z.string(),
+  payee: z.string().optional(),
+  memo: z.string().optional(),
+  confidence: z.number().min(0).max(1),
+});
+
+export type CheckData = z.infer<typeof CheckDataSchema>;
+
 // AI Provider interface
 export interface AIProvider {
   name: string;
@@ -38,6 +50,7 @@ export interface AIProvider {
   transcribe(audio: Buffer): Promise<string>;
   generateSpeech(text: string): Promise<Buffer>;
   extractReceipt(image: Buffer): Promise<ReceiptData>;
+  extractCheck(image: Buffer): Promise<CheckData>;
 }
 
 // AI Provider config

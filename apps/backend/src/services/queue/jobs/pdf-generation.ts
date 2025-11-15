@@ -2,15 +2,19 @@ import { Worker, Job } from 'bullmq';
 import { connection, QueueName } from '../client';
 import { prisma } from '../../../utils/db';
 import logger from '../../../utils/logger';
+import { generateInvoicePdf } from '../../pdf/professional-generator';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface PdfGenerationJob {
   invoiceId: string;
+  template?: 'professional' | 'minimal' | 'standard';
 }
 
 export const pdfGenerationWorker = new Worker<PdfGenerationJob>(
   QueueName.PDF_GENERATION,
   async (job: Job<PdfGenerationJob>) => {
-    const { invoiceId } = job.data;
+    const { invoiceId, template = 'professional' } = job.data;
 
     logger.info(`Processing PDF generation for invoice: ${invoiceId}`);
 
@@ -20,7 +24,9 @@ export const pdfGenerationWorker = new Worker<PdfGenerationJob>(
         where: { id: invoiceId },
         include: {
           customer: true,
-          lineItems: true,
+          lineItems: {
+            include: { service: true },
+          },
         },
       });
 
@@ -28,17 +34,33 @@ export const pdfGenerationWorker = new Worker<PdfGenerationJob>(
         throw new Error(`Invoice ${invoiceId} not found`);
       }
 
-      // TODO: Implement PDF generation using @react-pdf/renderer
-      // For now, just log
-      logger.info(`PDF would be generated for invoice ${invoice.invoiceNumber}`);
+      // Generate PDF
+      const pdfBuffer = await generateInvoicePdf({
+        invoiceId,
+        template,
+        logoPath: process.env.COMPANY_LOGO_PATH,
+        brandColor: process.env.BRAND_COLOR,
+      });
 
-      // Update invoice with PDF path/data
-      // await prisma.invoice.update({
-      //   where: { id: invoiceId },
-      //   data: { pdfUrl: pdfPath },
-      // });
+      // Save PDF to disk
+      const pdfDir = process.env.PDF_OUTPUT_DIR || './invoices';
+      if (!fs.existsSync(pdfDir)) {
+        fs.mkdirSync(pdfDir, { recursive: true });
+      }
 
-      return { success: true, invoiceId };
+      const filename = `${invoice.invoiceNumber}.pdf`;
+      const pdfPath = path.join(pdfDir, filename);
+      fs.writeFileSync(pdfPath, pdfBuffer);
+
+      // Update invoice with PDF path
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { pdfUrl: pdfPath },
+      });
+
+      logger.info(`PDF generated successfully: ${pdfPath}`);
+
+      return { success: true, invoiceId, pdfPath };
     } catch (error) {
       logger.error(`PDF generation failed for invoice ${invoiceId}:`, error);
       throw error;
