@@ -21,6 +21,8 @@ model User {
   // Relations
   assignedTasks   Task[]    @relation("AssignedTo")
   createdTasks    Task[]    @relation("CreatedBy")
+  refreshTokens   RefreshToken[]
+  passwordResets  PasswordReset[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -28,6 +30,44 @@ model User {
   @@index([email])
   @@index([role])
   @@index([active])
+}
+
+model RefreshToken {
+  id              String    @id @default(cuid())
+  token           String    @unique
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt       DateTime
+  revoked         Boolean   @default(false)
+  revokedAt       DateTime?
+  replacedBy      String?   // Token that replaced this one (for rotation)
+
+  // Device tracking
+  userAgent       String?
+  ipAddress       String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model PasswordReset {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token           String    @unique
+  expiresAt       DateTime
+  used            Boolean   @default(false)
+  usedAt          DateTime?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 model Customer {
