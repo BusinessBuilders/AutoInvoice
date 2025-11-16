@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure } from '../trpc';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
 import {
   generateTokens,
   verifyAndRotateRefreshToken,
@@ -14,6 +16,7 @@ import { TRPCError } from '@trpc/server';
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
+  twoFactorCode: z.string().optional(),
 });
 
 const registerSchema = z.object({
@@ -39,6 +42,18 @@ const resetPasswordSchema = z.object({
   newPassword: z.string().min(8),
 });
 
+const verifyEmailSchema = z.object({
+  token: z.string(),
+});
+
+const enable2FASchema = z.object({
+  code: z.string().length(6),
+});
+
+const verify2FASchema = z.object({
+  code: z.string().length(6),
+});
+
 export const authRouter = router({
   // Register new user
   register: publicProcedure
@@ -46,7 +61,6 @@ export const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { email, password, name } = input;
 
-      // Check if user already exists
       const existingUser = await ctx.prisma.user.findUnique({
         where: { email },
       });
@@ -58,10 +72,8 @@ export const authRouter = router({
         });
       }
 
-      // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      // Create user
       const user = await ctx.prisma.user.create({
         data: {
           email,
@@ -70,7 +82,19 @@ export const authRouter = router({
         },
       });
 
-      // Generate tokens
+      // Generate email verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      await ctx.prisma.passwordReset.create({
+        data: {
+          userId: user.id,
+          token: verificationToken,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+        },
+      });
+
+      // Send verification email
+      await emailService.sendEmailVerification(user.email, verificationToken, user.name);
+
       const tokens = await generateTokens(user.id);
 
       return {
@@ -79,6 +103,7 @@ export const authRouter = router({
           email: user.email,
           name: user.name,
           role: user.role,
+          emailVerified: user.emailVerified,
         },
         ...tokens,
       };
@@ -88,9 +113,8 @@ export const authRouter = router({
   login: publicProcedure
     .input(loginSchema)
     .mutation(async ({ ctx, input }) => {
-      const { email, password } = input;
+      const { email, password, twoFactorCode } = input;
 
-      // Find user
       const user = await ctx.prisma.user.findUnique({
         where: { email },
       });
@@ -102,7 +126,6 @@ export const authRouter = router({
         });
       }
 
-      // Check if user is active
       if (!user.active) {
         throw new TRPCError({
           code: 'FORBIDDEN',
@@ -110,7 +133,6 @@ export const authRouter = router({
         });
       }
 
-      // Verify password
       const validPassword = await bcrypt.compare(password, user.password);
 
       if (!validPassword) {
@@ -120,7 +142,30 @@ export const authRouter = router({
         });
       }
 
-      // Generate tokens
+      // Check 2FA if enabled
+      if (user.twoFactorEnabled && user.twoFactorSecret) {
+        if (!twoFactorCode) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: '2FA code required',
+          });
+        }
+
+        const verified = speakeasy.totp.verify({
+          secret: user.twoFactorSecret,
+          encoding: 'base32',
+          token: twoFactorCode,
+          window: 2,
+        });
+
+        if (!verified) {
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Invalid 2FA code',
+          });
+        }
+      }
+
       const tokens = await generateTokens(user.id);
 
       return {
@@ -129,12 +174,139 @@ export const authRouter = router({
           email: user.email,
           name: user.name,
           role: user.role,
+          emailVerified: user.emailVerified,
+          twoFactorEnabled: user.twoFactorEnabled,
         },
         ...tokens,
       };
     }),
 
-  // Refresh access token (with rotation)
+  // Verify email
+  verifyEmail: publicProcedure
+    .input(verifyEmailSchema)
+    .mutation(async ({ ctx, input }) => {
+      const resetToken = await ctx.prisma.passwordReset.findUnique({
+        where: { token: input.token },
+        include: { user: true },
+      });
+
+      if (!resetToken || resetToken.expiresAt < new Date() || resetToken.used) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid or expired verification token',
+        });
+      }
+
+      await ctx.prisma.$transaction([
+        ctx.prisma.user.update({
+          where: { id: resetToken.userId },
+          data: { emailVerified: true, emailVerifiedAt: new Date() },
+        }),
+        ctx.prisma.passwordReset.update({
+          where: { id: resetToken.id },
+          data: { used: true, usedAt: new Date() },
+        }),
+      ]);
+
+      return { success: true, message: 'Email verified successfully' };
+    }),
+
+  // Setup 2FA
+  setup2FA: protectedProcedure.mutation(async ({ ctx }) => {
+    const secret = speakeasy.generateSecret({
+      name: `LeadFlow Pro (${ctx.user.email})`,
+      issuer: 'LeadFlow Pro',
+    });
+
+    const qrCode = await QRCode.toDataURL(secret.otpauth_url!);
+
+    // Store temporarily (will be enabled after verification)
+    await ctx.prisma.user.update({
+      where: { id: ctx.user.id },
+      data: { twoFactorSecret: secret.base32 },
+    });
+
+    return {
+      secret: secret.base32,
+      qrCode,
+    };
+  }),
+
+  // Enable 2FA
+  enable2FA: protectedProcedure
+    .input(enable2FASchema)
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.user.id },
+      });
+
+      if (!user?.twoFactorSecret) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Setup 2FA first',
+        });
+      }
+
+      const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: 'base32',
+        token: input.code,
+        window: 2,
+      });
+
+      if (!verified) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Invalid code',
+        });
+      }
+
+      await ctx.prisma.user.update({
+        where: { id: ctx.user.id },
+        data: { twoFactorEnabled: true },
+      });
+
+      return { success: true, message: '2FA enabled successfully' };
+    }),
+
+  // Disable 2FA
+  disable2FA: protectedProcedure
+    .input(verify2FASchema)
+    .mutation(async ({ ctx, input }) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: ctx.user.id },
+      });
+
+      if (!user?.twoFactorSecret) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: '2FA not enabled',
+        });
+      }
+
+      const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: 'base32',
+        token: input.code,
+        window: 2,
+      });
+
+      if (!verified) {
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: 'Invalid code',
+        });
+      }
+
+      await ctx.prisma.user.update({
+        where: { id: ctx.user.id },
+        data: { twoFactorEnabled: false, twoFactorSecret: null },
+      });
+
+      return { success: true, message: '2FA disabled successfully' };
+    }),
+
+  // Refresh token
   refresh: publicProcedure
     .input(refreshTokenSchema)
     .mutation(async ({ input }) => {
@@ -150,7 +322,7 @@ export const authRouter = router({
       return result.newTokens;
     }),
 
-  // Logout (revoke single device)
+  // Logout
   logout: publicProcedure
     .input(logoutSchema)
     .mutation(async ({ input }) => {
@@ -169,11 +341,10 @@ export const authRouter = router({
   // Logout all devices
   logoutAll: protectedProcedure.mutation(async ({ ctx }) => {
     await revokeAllUserTokens(ctx.user.id);
-
     return { success: true, message: 'Logged out from all devices' };
   }),
 
-  // Get current user active sessions
+  // Get sessions
   getSessions: protectedProcedure.query(async ({ ctx }) => {
     const sessions = await ctx.prisma.refreshToken.findMany({
       where: {
@@ -194,7 +365,7 @@ export const authRouter = router({
     return sessions;
   }),
 
-  // Revoke specific session
+  // Revoke session
   revokeSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -226,12 +397,10 @@ export const authRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { email } = input;
 
-      // Find user by email
       const user = await ctx.prisma.user.findUnique({
         where: { email },
       });
 
-      // Always return success (don't reveal if email exists)
       if (!user) {
         return {
           success: true,
@@ -239,11 +408,9 @@ export const authRouter = router({
         };
       }
 
-      // Generate secure reset token
       const resetToken = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Store reset token in database
       await ctx.prisma.passwordReset.create({
         data: {
           userId: user.id,
@@ -252,7 +419,6 @@ export const authRouter = router({
         },
       });
 
-      // Send password reset email
       await emailService.sendPasswordReset(user.email, resetToken, user.name);
 
       return {
@@ -261,13 +427,12 @@ export const authRouter = router({
       };
     }),
 
-  // Reset password with token
+  // Reset password
   resetPassword: publicProcedure
     .input(resetPasswordSchema)
     .mutation(async ({ ctx, input }) => {
       const { token, newPassword } = input;
 
-      // Find reset token
       const resetToken = await ctx.prisma.passwordReset.findUnique({
         where: { token },
         include: { user: true },
@@ -280,7 +445,6 @@ export const authRouter = router({
         });
       }
 
-      // Check if token is expired
       if (resetToken.expiresAt < new Date()) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -288,7 +452,6 @@ export const authRouter = router({
         });
       }
 
-      // Check if token was already used
       if (resetToken.used) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
@@ -296,10 +459,8 @@ export const authRouter = router({
         });
       }
 
-      // Hash new password
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      // Update password and mark token as used
       await ctx.prisma.$transaction([
         ctx.prisma.user.update({
           where: { id: resetToken.userId },
@@ -309,7 +470,6 @@ export const authRouter = router({
           where: { id: resetToken.id },
           data: { used: true, usedAt: new Date() },
         }),
-        // Revoke all existing refresh tokens (force re-login everywhere)
         ctx.prisma.refreshToken.updateMany({
           where: { userId: resetToken.userId },
           data: { revoked: true, revokedAt: new Date() },

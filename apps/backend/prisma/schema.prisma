@@ -17,6 +17,10 @@ model User {
   role            UserRole  @default(OWNER)
   phone           String?
   active          Boolean   @default(true)
+  emailVerified   Boolean   @default(false)
+  emailVerifiedAt DateTime?
+  twoFactorEnabled Boolean  @default(false)
+  twoFactorSecret  String?
 
   // Relations
   assignedTasks   Task[]    @relation("AssignedTo")
