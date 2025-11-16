@@ -1,78 +1,24 @@
-version: '3.9'
+version: '3.8'
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
-    container_name: invoice_db
+    image: postgres:15-alpine
     environment:
-      POSTGRES_DB: invoice_platform
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backup:/backup
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: leadflow
     ports:
       - "5432:5432"
-    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
-    container_name: invoice_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    restart: unless-stopped
-
-  backend:
-    build: ./apps/backend
-    container_name: invoice_backend
-    depends_on:
-      - postgres
-      - redis
-    environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/invoice_platform
-      REDIS_URL: redis://redis:6379
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-    volumes:
-      - ./apps/backend:/app
-      - ./uploads:/app/uploads
-      - ./invoices:/app/invoices
-    ports:
-      - "4000:4000"
-    restart: unless-stopped
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: invoice_ollama
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    container_name: invoice_nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
-    depends_on:
-      - backend
-    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
-  ollama_data:
