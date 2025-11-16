@@ -1,12 +1,14 @@
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure } from '../trpc';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import {
   generateTokens,
   verifyAndRotateRefreshToken,
   revokeAllUserTokens,
   revokeToken,
 } from '../middleware/auth';
+import { emailService } from '../utils/email';
 import { TRPCError } from '@trpc/server';
 
 const loginSchema = z.object({
@@ -26,6 +28,15 @@ const refreshTokenSchema = z.object({
 
 const logoutSchema = z.object({
   refreshToken: z.string(),
+});
+
+const requestPasswordResetSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string(),
+  newPassword: z.string().min(8),
 });
 
 export const authRouter = router({
@@ -207,5 +218,107 @@ export const authRouter = router({
       });
 
       return { success: true, message: 'Session revoked' };
+    }),
+
+  // Request password reset
+  requestPasswordReset: publicProcedure
+    .input(requestPasswordResetSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { email } = input;
+
+      // Find user by email
+      const user = await ctx.prisma.user.findUnique({
+        where: { email },
+      });
+
+      // Always return success (don't reveal if email exists)
+      if (!user) {
+        return {
+          success: true,
+          message: 'If an account exists, a password reset email has been sent',
+        };
+      }
+
+      // Generate secure reset token
+      const resetToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      // Store reset token in database
+      await ctx.prisma.passwordReset.create({
+        data: {
+          userId: user.id,
+          token: resetToken,
+          expiresAt,
+        },
+      });
+
+      // Send password reset email
+      await emailService.sendPasswordReset(user.email, resetToken, user.name);
+
+      return {
+        success: true,
+        message: 'If an account exists, a password reset email has been sent',
+      };
+    }),
+
+  // Reset password with token
+  resetPassword: publicProcedure
+    .input(resetPasswordSchema)
+    .mutation(async ({ ctx, input }) => {
+      const { token, newPassword } = input;
+
+      // Find reset token
+      const resetToken = await ctx.prisma.passwordReset.findUnique({
+        where: { token },
+        include: { user: true },
+      });
+
+      if (!resetToken) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Invalid or expired reset token',
+        });
+      }
+
+      // Check if token is expired
+      if (resetToken.expiresAt < new Date()) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Reset token has expired',
+        });
+      }
+
+      // Check if token was already used
+      if (resetToken.used) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Reset token has already been used',
+        });
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update password and mark token as used
+      await ctx.prisma.$transaction([
+        ctx.prisma.user.update({
+          where: { id: resetToken.userId },
+          data: { password: hashedPassword },
+        }),
+        ctx.prisma.passwordReset.update({
+          where: { id: resetToken.id },
+          data: { used: true, usedAt: new Date() },
+        }),
+        // Revoke all existing refresh tokens (force re-login everywhere)
+        ctx.prisma.refreshToken.updateMany({
+          where: { userId: resetToken.userId },
+          data: { revoked: true, revokedAt: new Date() },
+        }),
+      ]);
+
+      return {
+        success: true,
+        message: 'Password reset successful. Please login with your new password.',
+      };
     }),
 });
