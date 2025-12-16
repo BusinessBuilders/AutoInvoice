@@ -17,7 +17,7 @@ interface ExtractedCheck {
 interface MatchingInvoice {
   id: string;
   invoiceNumber: string;
-  total: number;
+  total: string | number;
   serviceDate: string;
   customer: {
     id: string;

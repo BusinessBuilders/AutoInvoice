@@ -2,21 +2,48 @@
 
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
+import { useAuth } from '@/hooks/useAuth';
+import { useEffect, Fragment } from 'react';
 
 export default function Home() {
+  const { logout, isLoading, requireAuth } = useAuth();
   const { data: stats } = trpc.invoice.stats.useQuery();
-  const { data: recentInvoices } = trpc.invoice.list.useQuery({ limit: 5 });
-  const { data: customers } = trpc.customer.list.useQuery({ limit: 5 });
+  const { data: recentInvoicesData } = trpc.invoice.list.useQuery({ limit: 5 });
+  const { data: customersData } = trpc.customer.list.useQuery({ limit: 5 });
+
+  useEffect(() => {
+    requireAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">AutoInvoice Dashboard</h1>
-          <p className="mt-2 text-lg text-gray-600">
-            AI-powered invoice automation platform
-          </p>
+        <div className="mb-8 flex justify-between items-start">
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900">AutoInvoice Dashboard</h1>
+            <p className="mt-2 text-lg text-gray-600">
+              AI-powered invoice automation platform
+            </p>
+          </div>
+          <button
+            onClick={logout}
+            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Logout
+          </button>
         </div>
 
         {/* Quick Actions */}
@@ -166,9 +193,9 @@ export default function Home() {
               </div>
             </div>
             <div className="px-6 py-4">
-              {recentInvoices && recentInvoices.length > 0 ? (
+              {recentInvoicesData?.invoices && recentInvoicesData.invoices.length > 0 ? (
                 <div className="space-y-3">
-                  {recentInvoices.map((invoice) => (
+                  {recentInvoicesData.invoices.map((invoice) => (
                     <Link
                       key={invoice.id}
                       href={`/invoices/${invoice.id}`}
@@ -230,9 +257,9 @@ export default function Home() {
               </div>
             </div>
             <div className="px-6 py-4">
-              {customers && customers.length > 0 ? (
+              {customersData?.customers && customersData.customers.length > 0 ? (
                 <div className="space-y-3">
-                  {customers.map((customer) => (
+                  {customersData.customers.map((customer) => (
                     <Link
                       key={customer.id}
                       href={`/customers/${customer.id}`}

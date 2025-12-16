@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { env } from '../utils/env';
 import { prisma } from '../utils/prisma';
@@ -41,9 +41,11 @@ export const generateTokens = async (
   }
 ) => {
   // Generate short-lived access token (15 minutes)
-  const accessToken = jwt.sign({ userId }, env.JWT_SECRET, {
-    expiresIn: env.JWT_EXPIRES_IN || '15m',
-  });
+  const accessToken = jwt.sign(
+    { userId },
+    env.JWT_SECRET,
+    { expiresIn: env.JWT_EXPIRES_IN || '15m' } as SignOptions
+  );
 
   // Generate long-lived refresh token (7 days)
   const refreshToken = crypto.randomBytes(64).toString('hex');

@@ -122,13 +122,13 @@ export async function generateInvoicePdf(options: InvoicePdfOptions): Promise<Bu
   page.drawText(`Subtotal:`, { x: 350, y, size: 12, font: boldFont });
   page.drawText(`$${invoice.subtotal.toFixed(2)}`, { x: 450, y, size: 12, font });
 
-  if (invoice.taxAmount > 0) {
+  if (Number(invoice.taxAmount) > 0) {
     y -= 20;
     page.drawText(`Tax (${invoice.taxRate}%):`, { x: 350, y, size: 12, font });
     page.drawText(`$${invoice.taxAmount.toFixed(2)}`, { x: 450, y, size: 12, font });
   }
 
-  if (invoice.discount > 0) {
+  if (Number(invoice.discount) > 0) {
     y -= 20;
     page.drawText(`Discount:`, { x: 350, y, size: 12, font });
     page.drawText(`-$${invoice.discount.toFixed(2)}`, { x: 450, y, size: 12, font });

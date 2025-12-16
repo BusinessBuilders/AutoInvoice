@@ -562,15 +562,16 @@ function drawCompanyInfo(page: any, font: any, info: CompanyInfo, x: number, y: 
   });
 }
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
+function hexToRgb(hex: string) {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? {
-        r: parseInt(result[1], 16) / 255,
-        g: parseInt(result[2], 16) / 255,
-        b: parseInt(result[3], 16) / 255,
-      }
-    : { r: 0.15, g: 0.39, b: 0.92 }; // Default blue
+  if (result) {
+    return rgb(
+      parseInt(result[1], 16) / 255,
+      parseInt(result[2], 16) / 255,
+      parseInt(result[3], 16) / 255
+    );
+  }
+  return rgb(0.15, 0.39, 0.92); // Default blue
 }
 
 function wrapText(text: string, maxWidth: number, font: any, size: number): string[] {

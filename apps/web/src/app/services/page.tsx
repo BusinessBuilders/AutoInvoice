@@ -2,9 +2,11 @@
 
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function ServicesPage() {
+  const { isLoading: authLoading, requireAuth } = useAuth();
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({
@@ -16,8 +18,13 @@ export default function ServicesPage() {
     description: '',
   });
 
-  const { data: services, isLoading } = trpc.service.list.useQuery({ limit: 100 });
+  const { data: services, isLoading } = trpc.service.list.useQuery();
   const utils = trpc.useContext();
+
+  useEffect(() => {
+    requireAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const createService = trpc.service.create.useMutation({
     onSuccess: () => {
@@ -55,6 +62,15 @@ export default function ServicesPage() {
     acc[category].push(service);
     return acc;
   }, {});
+
+  if (authLoading) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <p className="mt-4 text-gray-600">Loading...</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -267,10 +283,10 @@ export default function ServicesPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={createService.isLoading}
+                  disabled={createService.isPending}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {createService.isLoading ? 'Adding...' : 'Add Service'}
+                  {createService.isPending ? 'Adding...' : 'Add Service'}
                 </button>
               </div>
             </form>
@@ -282,7 +298,7 @@ export default function ServicesPage() {
             )}
           </div>
         </div>
-      )}
-    </div>
+        )}
+      </div>
   );
 }

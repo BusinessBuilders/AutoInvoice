@@ -2,6 +2,7 @@ import { prisma } from '../utils/db';
 import { aiRouter } from './ai';
 import logger from '../utils/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { generateEmbedding } from './embeddings';
 
 /**
  * Smart Templates System
@@ -13,12 +14,7 @@ export interface QuickInvoiceInput {
   userId?: string;
 }
 
-export interface QuickInvoiceResult {
-  customer: {
-    id: string;
-    name: string;
-    email?: string;
-  };
+export interface QuickInvoiceLineItem {
   service: {
     id: string;
     name: string;
@@ -27,9 +23,21 @@ export interface QuickInvoiceResult {
   quantity: number;
   unit: string;
   rate: number;
+  amount: number;
+}
+
+export interface QuickInvoiceResult {
+  customer: {
+    id: string;
+    name: string;
+    email?: string;
+  };
+  lineItems: QuickInvoiceLineItem[];
+  subtotal: number;
   total: number;
   date: Date;
   confidence: number;
+  warnings?: string[];
 }
 
 /**
@@ -50,37 +58,58 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
     throw new Error(`Customer "${aiParsed.customerName}" not found. Add them first with: npm run cli customer:add`);
   }
 
-  // Extract first service (for quick entry)
-  const serviceInfo = aiParsed.services[0];
+  // Process all services into line items
+  const lineItems: QuickInvoiceLineItem[] = [];
+  const warnings: string[] = [];
 
-  // Find matching service in database
-  const service = await findService(serviceInfo.description);
+  for (const serviceInfo of aiParsed.services) {
+    // Find matching service in database
+    const service = await findService(serviceInfo.description);
 
-  if (!service) {
-    throw new Error(`Service "${serviceInfo.description}" not found. Add it first with: npm run cli service:add`);
+    if (!service) {
+      warnings.push(`Service "${serviceInfo.description}" not found in database - skipped`);
+      continue;
+    }
+
+    // Check for customer-specific pricing
+    const customPrice = await prisma.priceOverride.findUnique({
+      where: {
+        customerId_serviceId: {
+          customerId: customer.id,
+          serviceId: service.id,
+        },
+      },
+    });
+
+    // Calculate pricing
+    const quantity = serviceInfo.quantity;
+    const rate = customPrice?.price || service.basePrice || 0;
+    const amount = quantity * Number(rate);
+
+    lineItems.push({
+      service: {
+        id: service.id,
+        name: service.name,
+        code: service.code,
+      },
+      quantity,
+      unit: service.priceUnit || 'unit',
+      rate: Number(rate),
+      amount,
+    });
   }
 
-  // Check for customer-specific pricing
-  const customPrice = await prisma.priceOverride.findUnique({
-    where: {
-      customerId_serviceId: {
-        customerId: customer.id,
-        serviceId: service.id,
-      },
-    },
-  });
+  if (lineItems.length === 0) {
+    throw new Error('No valid services found in the input. Please check your text and try again.');
+  }
 
-  // Calculate pricing
-  const quantity = serviceInfo.quantity;
-  const rate = customPrice?.price || service.basePrice || 0;
-  const total = quantity * Number(rate);
+  const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
 
   logger.info('Quick invoice parsed', {
     customer: customer.name,
-    service: service.name,
-    quantity,
-    rate,
-    total,
+    lineItemsCount: lineItems.length,
+    subtotal,
+    warnings,
   });
 
   return {
@@ -89,17 +118,12 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
       name: customer.name,
       email: customer.email || undefined,
     },
-    service: {
-      id: service.id,
-      name: service.name,
-      code: service.code,
-    },
-    quantity,
-    unit: service.priceUnit || 'unit',
-    rate: Number(rate),
-    total,
+    lineItems,
+    subtotal,
+    total: subtotal,
     date: new Date(aiParsed.serviceDate),
     confidence: aiParsed.confidence,
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
@@ -120,7 +144,7 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
     : 0;
   const invoiceNumber = `INV-${String(lastNumber + 1).padStart(6, '0')}`;
 
-  // Create invoice
+  // Create invoice with all line items
   const invoice = await prisma.invoice.create({
     data: {
       invoiceNumber,
@@ -128,22 +152,20 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
       serviceDate: parsed.date,
       issueDate: new Date(),
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-      subtotal: parsed.total,
+      subtotal: parsed.subtotal,
       total: parsed.total,
       status: 'DRAFT',
       source: 'quick_entry',
       lineItems: {
-        create: [
-          {
-            serviceId: parsed.service.id,
-            description: `${parsed.service.name} - ${parsed.quantity} ${parsed.unit}`,
-            quantity: parsed.quantity,
-            unit: parsed.unit,
-            rate: parsed.rate,
-            amount: parsed.total,
-            order: 0,
-          },
-        ],
+        create: parsed.lineItems.map((item, index) => ({
+          serviceId: item.service.id,
+          description: `${item.service.name} - ${item.quantity} ${item.unit}`,
+          quantity: item.quantity,
+          unit: item.unit,
+          rate: item.rate,
+          amount: item.amount,
+          order: index,
+        })),
       },
     },
     include: {
@@ -154,6 +176,7 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
 
   logger.info('Quick invoice created', {
     invoiceNumber: invoice.invoiceNumber,
+    lineItemsCount: parsed.lineItems.length,
     total: invoice.total,
   });
 
@@ -161,10 +184,30 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
 }
 
 /**
- * Find customer by name or nickname (fuzzy match)
+ * Find customer by name or nickname (AI vector search + fallback)
  */
 async function findCustomer(nameQuery: string): Promise<any> {
-  // Try exact match first
+  // Try vector similarity search first (AI-powered semantic matching)
+  const queryEmbedding = await generateEmbedding(nameQuery);
+
+  if (queryEmbedding) {
+    const customers = await prisma.$queryRaw<any[]>`
+      SELECT
+        id, name, email, phone, company, nickname,
+        1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+      FROM "Customer"
+      WHERE embedding IS NOT NULL
+      ORDER BY similarity DESC
+      LIMIT 3
+    `;
+
+    if (customers.length > 0 && customers[0].similarity > 0.7) {
+      // High confidence match
+      return customers[0];
+    }
+  }
+
+  // Fallback to exact match
   let customer = await prisma.customer.findFirst({
     where: {
       OR: [
@@ -174,7 +217,7 @@ async function findCustomer(nameQuery: string): Promise<any> {
     },
   });
 
-  // Try partial match
+  // Fallback to partial match
   if (!customer) {
     customer = await prisma.customer.findFirst({
       where: {
@@ -190,19 +233,38 @@ async function findCustomer(nameQuery: string): Promise<any> {
 }
 
 /**
- * Find service by description (fuzzy match)
+ * Find service by description (AI vector search + fallback)
  */
 async function findService(descQuery: string): Promise<any> {
-  // Common mappings
+  // Try vector similarity search first (AI-powered semantic matching)
+  const queryEmbedding = await generateEmbedding(descQuery);
+
+  if (queryEmbedding) {
+    const services = await prisma.$queryRaw<any[]>`
+      SELECT
+        id, name, code, category, description, "basePrice", "priceUnit",
+        1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+      FROM "Service"
+      WHERE embedding IS NOT NULL
+      ORDER BY similarity DESC
+      LIMIT 3
+    `;
+
+    if (services.length > 0 && services[0].similarity > 0.6) {
+      // Good confidence match (lowered from 0.7 to 0.6 for better recall)
+      return services[0];
+    }
+  }
+
+  // Fallback to keyword matching (minimal - let GPT-4o + embeddings do the heavy lifting)
   const serviceKeywords: Record<string, string[]> = {
-    'hydroseed': ['hydroseed', 'hydroseeding', 'seed'],
-    'lawn_mow': ['mow', 'mowing', 'lawn', 'grass'],
-    'salt': ['salt', 'salting', 'de-ice', 'ice'],
-    'fertilize': ['fertilize', 'fertilizer', 'fert'],
-    'trim': ['trim', 'trimming', 'edge', 'edging'],
+    'hydroseed': ['hydroseed', 'hydroseeding'],
+    'mow': ['mow', 'mowing'],
+    'salt': ['salt', 'salting'],
+    'fertilize': ['fertilize', 'fertilizer'],
+    'trim': ['trim', 'trimming'],
   };
 
-  // Try to match keywords
   const queryLower = descQuery.toLowerCase();
 
   for (const [code, keywords] of Object.entries(serviceKeywords)) {
@@ -214,14 +276,14 @@ async function findService(descQuery: string): Promise<any> {
     }
   }
 
-  // Try exact name match
+  // Fallback to exact name match
   let service = await prisma.service.findFirst({
     where: {
       name: { contains: descQuery, mode: 'insensitive' },
     },
   });
 
-  // Try code match
+  // Fallback to code match
   if (!service) {
     service = await prisma.service.findFirst({
       where: {
@@ -363,4 +425,122 @@ export async function quickAddService(data: {
       priceUnit: data.priceUnit || 'unit',
     },
   });
+}
+
+/**
+ * Get multiple service candidates for disambiguation
+ * Returns top matches with similarity scores
+ */
+export async function disambiguateService(query: string): Promise<any[]> {
+  // Try vector similarity search first
+  const queryEmbedding = await generateEmbedding(query);
+
+  if (queryEmbedding) {
+    const services = await prisma.$queryRaw<any[]>`
+      SELECT
+        id, name, code, category, description, "basePrice", "priceUnit",
+        1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+      FROM "Service"
+      WHERE embedding IS NOT NULL
+      ORDER BY similarity DESC
+      LIMIT 5
+    `;
+
+    if (services.length > 0) {
+      return services.map((service) => ({
+        id: service.id,
+        name: service.name,
+        code: service.code,
+        category: service.category,
+        description: service.description,
+        basePrice: Number(service.basePrice || 0),
+        priceUnit: service.priceUnit,
+        similarity: Number(service.similarity),
+        confidence: service.similarity > 0.7 ? 'high' : service.similarity > 0.5 ? 'medium' : 'low',
+      }));
+    }
+  }
+
+  // Fallback to keyword search
+  const queryLower = query.toLowerCase();
+  const services = await prisma.service.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: 'insensitive' } },
+        { code: { contains: query, mode: 'insensitive' } },
+        { description: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    take: 5,
+  });
+
+  return services.map((service) => ({
+    id: service.id,
+    name: service.name,
+    code: service.code,
+    category: service.category,
+    description: service.description,
+    basePrice: Number(service.basePrice || 0),
+    priceUnit: service.priceUnit,
+    similarity: 0,
+    confidence: 'low',
+  }));
+}
+
+/**
+ * Get multiple customer candidates for disambiguation
+ * Returns top matches with similarity scores
+ */
+export async function disambiguateCustomer(query: string): Promise<any[]> {
+  // Try vector similarity search first
+  const queryEmbedding = await generateEmbedding(query);
+
+  if (queryEmbedding) {
+    const customers = await prisma.$queryRaw<any[]>`
+      SELECT
+        id, name, email, phone, company, nickname,
+        1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+      FROM "Customer"
+      WHERE embedding IS NOT NULL
+      ORDER BY similarity DESC
+      LIMIT 5
+    `;
+
+    if (customers.length > 0) {
+      return customers.map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        company: customer.company,
+        nickname: customer.nickname,
+        similarity: Number(customer.similarity),
+        confidence: customer.similarity > 0.7 ? 'high' : customer.similarity > 0.5 ? 'medium' : 'low',
+      }));
+    }
+  }
+
+  // Fallback to keyword search
+  const customers = await prisma.customer.findMany({
+    where: {
+      OR: [
+        { name: { contains: query, mode: 'insensitive' } },
+        { company: { contains: query, mode: 'insensitive' } },
+        { email: { contains: query, mode: 'insensitive' } },
+        { nickname: { has: query } },
+      ],
+    },
+    take: 5,
+  });
+
+  return customers.map((customer) => ({
+    id: customer.id,
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone,
+    company: customer.company,
+    nickname: customer.nickname,
+    similarity: 0,
+    confidence: 'low',
+  }));
 }

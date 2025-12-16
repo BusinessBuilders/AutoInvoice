@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
+import { generateServiceEmbedding } from '../services/embeddings';
+import { Prisma } from '@prisma/client';
 
 const createServiceSchema = z.object({
   name: z.string().min(1),
@@ -28,19 +30,73 @@ export const serviceRouter = router({
   create: protectedProcedure
     .input(createServiceSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.service.create({
-        data: input,
+      // Generate embedding for semantic search
+      const embedding = await generateServiceEmbedding({
+        name: input.name,
+        code: input.code,
+        description: input.description,
+        category: input.category,
       });
+
+      // Create service without embedding first
+      const service = await ctx.prisma.service.create({
+        data: {
+          ...input,
+        },
+      });
+
+      // Then update with embedding via raw SQL
+      if (embedding) {
+        await ctx.prisma.$executeRaw`
+          UPDATE "Service"
+          SET embedding = ARRAY[${Prisma.join(embedding)}]::vector(1536)
+          WHERE id = ${service.id}
+        `;
+      }
+
+      return service;
     }),
 
   update: protectedProcedure
     .input(createServiceSchema.partial().extend({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      return ctx.prisma.service.update({
+
+      // Regenerate embedding if any relevant fields changed
+      let embedding: number[] | null = null;
+      if (data.name || data.code || data.description || data.category) {
+        const existing = await ctx.prisma.service.findUnique({
+          where: { id },
+        });
+
+        if (existing) {
+          embedding = await generateServiceEmbedding({
+            name: data.name || existing.name,
+            code: data.code || existing.code,
+            description: data.description !== undefined ? data.description : existing.description,
+            category: data.category || existing.category,
+          });
+        }
+      }
+
+      // Update service data without embedding first
+      const service = await ctx.prisma.service.update({
         where: { id },
-        data,
+        data: {
+          ...data,
+        },
       });
+
+      // Then update embedding via raw SQL if it was regenerated
+      if (embedding) {
+        await ctx.prisma.$executeRaw`
+          UPDATE "Service"
+          SET embedding = ARRAY[${Prisma.join(embedding)}]::vector(1536)
+          WHERE id = ${id}
+        `;
+      }
+
+      return service;
     }),
 
   delete: protectedProcedure

@@ -23,7 +23,7 @@ class EmailService {
     // Initialize based on environment variables
     if (process.env.SMTP_HOST) {
       // Use SMTP (supports Gmail, Outlook, custom SMTP)
-      this.transporter = nodemailer.createTransporter({
+      this.transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT || '587'),
         secure: process.env.SMTP_SECURE === 'true',

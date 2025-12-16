@@ -33,6 +33,10 @@ export async function restoreSoftDeleted<T>(model: any, where: any): Promise<T> 
  * Permanently delete soft-deleted records older than X days
  */
 export async function permanentlyDeleteOld(days: number = 90): Promise<number> {
+  // TODO: Implement soft delete functionality
+  // Requires adding deletedAt DateTime? field to Invoice, Lead, Customer models in schema.prisma
+
+  /*
   const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   let totalDeleted = 0;
 
@@ -61,6 +65,9 @@ export async function permanentlyDeleteOld(days: number = 90): Promise<number> {
   totalDeleted += deletedCustomers.count;
 
   return totalDeleted;
+  */
+
+  return 0; // Placeholder until soft delete is implemented
 }
 
 /**

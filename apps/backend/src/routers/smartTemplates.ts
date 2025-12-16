@@ -138,4 +138,34 @@ export const smartTemplatesRouter = router({
       const service = await smartTemplates.quickAddService(input);
       return service;
     }),
+
+  /**
+   * Disambiguate service matches when AI is uncertain
+   * Returns multiple candidates for user selection
+   */
+  disambiguateService: protectedProcedure
+    .input(
+      z.object({
+        query: z.string().min(1),
+      })
+    )
+    .query(async ({ input }) => {
+      const candidates = await smartTemplates.disambiguateService(input.query);
+      return candidates;
+    }),
+
+  /**
+   * Disambiguate customer matches when AI is uncertain
+   * Returns multiple candidates for user selection
+   */
+  disambiguateCustomer: protectedProcedure
+    .input(
+      z.object({
+        query: z.string().min(1),
+      })
+    )
+    .query(async ({ input }) => {
+      const candidates = await smartTemplates.disambiguateCustomer(input.query);
+      return candidates;
+    }),
 });

@@ -159,7 +159,7 @@ export async function getUserInfo(): Promise<{
     return {
       email: response.data.email!,
       name: response.data.name!,
-      picture: response.data.picture,
+      picture: response.data.picture || undefined,
     };
   } catch (error: any) {
     logger.error('User info fetch error:', error);

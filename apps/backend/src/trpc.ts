@@ -43,10 +43,20 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not authenticated' });
   }
 
+  // Fetch the full user object
+  const user = await ctx.prisma.user.findUnique({
+    where: { id: ctx.userId },
+  });
+
+  if (!user) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'User not found' });
+  }
+
   return next({
     ctx: {
       ...ctx,
       userId: ctx.userId,
+      user,
     },
   });
 });

@@ -247,7 +247,7 @@ export async function handleStats(ctx: Context) {
       `━━━━━━━━━━━━━━━━━━━━━━\n` +
       `Total Collected: $${revenue.toFixed(2)}\n` +
       `Pending Payment: $${pending.toFixed(2)}\n` +
-      `Total Outstanding: $${(revenue + pending).toFixed(2)}`
+      `Total Outstanding: $${(Number(revenue) + Number(pending)).toFixed(2)}`
     );
   } catch (error) {
     logger.error('Telegram /stats error:', error);

@@ -16,7 +16,9 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: env.FRONTEND_URL,
+  origin: env.NODE_ENV === 'development'
+    ? [env.FRONTEND_URL, 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003']
+    : env.FRONTEND_URL,
   credentials: true,
 }));
 

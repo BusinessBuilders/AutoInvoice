@@ -68,6 +68,7 @@ if (env.TELEGRAM_BOT_TOKEN) {
       );
 
       // Process as text message (reuse text handler logic)
+      // @ts-ignore - Creating a modified context for voice message processing
       const fakeContext = {
         ...ctx,
         message: {

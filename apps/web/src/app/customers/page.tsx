@@ -6,11 +6,11 @@ import { useState } from 'react';
 
 export default function CustomersPage() {
   const [search, setSearch] = useState('');
-  const { data: customers, isLoading } = trpc.customer.list.useQuery({
+  const { data: customersData, isLoading } = trpc.customer.list.useQuery({
     limit: 100,
   });
 
-  const filteredCustomers = customers?.filter((customer) =>
+  const filteredCustomers = customersData?.customers?.filter((customer) =>
     customer.name.toLowerCase().includes(search.toLowerCase()) ||
     customer.email?.toLowerCase().includes(search.toLowerCase()) ||
     customer.company?.toLowerCase().includes(search.toLowerCase())

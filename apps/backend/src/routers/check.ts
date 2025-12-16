@@ -67,7 +67,7 @@ export const checkRouter = router({
 
         logger.info('Found matching invoices', {
           count: matchingInvoices.length,
-          invoices: matchingInvoices.map(inv => ({
+          invoices: matchingInvoices.map((inv: typeof matchingInvoices[number]) => ({
             id: inv.id,
             number: inv.invoiceNumber,
             amount: inv.total,
@@ -131,7 +131,7 @@ export const checkRouter = router({
         return {
           check,
           extractedData: checkData,
-          matchingInvoices: matchingInvoices.map(inv => ({
+          matchingInvoices: matchingInvoices.map((inv: typeof matchingInvoices[number]) => ({
             id: inv.id,
             invoiceNumber: inv.invoiceNumber,
             total: inv.total,

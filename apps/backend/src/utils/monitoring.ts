@@ -11,7 +11,7 @@ if (process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: 0.1, // 10% of transactions
-    beforeSend(event) {
+    beforeSend(event: any) {
       // Don't send development errors to Sentry
       if (process.env.NODE_ENV === 'development') {
         console.log('Sentry event (not sent):', event);

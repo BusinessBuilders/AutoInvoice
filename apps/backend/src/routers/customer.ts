@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
+import { generateCustomerEmbedding } from '../services/embeddings';
+import { Prisma } from '@prisma/client';
 
 const createCustomerSchema = z.object({
   name: z.string().min(1),
@@ -95,9 +97,30 @@ export const customerRouter = router({
   create: protectedProcedure
     .input(createCustomerSchema)
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.customer.create({
-        data: input,
+      // Generate embedding for semantic search
+      const embedding = await generateCustomerEmbedding({
+        name: input.name,
+        nickname: input.nickname,
+        company: input.company,
       });
+
+      // Create customer without embedding first
+      const customer = await ctx.prisma.customer.create({
+        data: {
+          ...input,
+        },
+      });
+
+      // Then update with embedding via raw SQL
+      if (embedding) {
+        await ctx.prisma.$executeRaw`
+          UPDATE "Customer"
+          SET embedding = ARRAY[${Prisma.join(embedding)}]::vector(1536)
+          WHERE id = ${customer.id}
+        `;
+      }
+
+      return customer;
     }),
 
   // Update customer
@@ -105,10 +128,41 @@ export const customerRouter = router({
     .input(updateCustomerSchema)
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      return ctx.prisma.customer.update({
+
+      // Regenerate embedding if relevant fields changed
+      let embedding: number[] | null = null;
+      if (data.name || data.nickname || data.company !== undefined) {
+        const existing = await ctx.prisma.customer.findUnique({
+          where: { id },
+        });
+
+        if (existing) {
+          embedding = await generateCustomerEmbedding({
+            name: data.name || existing.name,
+            nickname: data.nickname || existing.nickname,
+            company: data.company !== undefined ? data.company : existing.company,
+          });
+        }
+      }
+
+      // Update customer data without embedding first
+      const customer = await ctx.prisma.customer.update({
         where: { id },
-        data,
+        data: {
+          ...data,
+        },
       });
+
+      // Then update embedding via raw SQL if it was regenerated
+      if (embedding) {
+        await ctx.prisma.$executeRaw`
+          UPDATE "Customer"
+          SET embedding = ARRAY[${Prisma.join(embedding)}]::vector(1536)
+          WHERE id = ${id}
+        `;
+      }
+
+      return customer;
     }),
 
   // Delete customer

@@ -12,12 +12,12 @@ export default function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
 
-  const { data: invoices, isLoading } = trpc.invoice.list.useQuery({
+  const { data: invoicesData, isLoading } = trpc.invoice.list.useQuery({
     customerId: customerId || undefined,
     limit: 100,
   });
 
-  const filteredInvoices = invoices?.filter((invoice) => {
+  const filteredInvoices = invoicesData?.invoices?.filter((invoice) => {
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
     const matchesSearch = invoice.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
                           invoice.customer?.name.toLowerCase().includes(search.toLowerCase());

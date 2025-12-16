@@ -3,8 +3,10 @@
  * Gmail, Calendar, Drive services
  */
 
-export * from './client';
-export * from './gmail';
-export * from './calendar';
-export * from './drive';
+// Export OAuth functionality
 export * from './oauth';
+
+// Export specific implementations (avoid conflicts with client.ts stubs)
+export { sendEmail } from './gmail';
+export { createCalendarEvent } from './calendar';
+export { uploadToDrive } from './drive';

@@ -16,18 +16,18 @@ export default function QuickInvoicePage() {
   const [error, setError] = useState('');
 
   const utils = trpc.useContext();
-  const { data: customers } = trpc.customer.list.useQuery({ limit: 100 });
-  const { data: services } = trpc.service.list.useQuery({ limit: 100 });
+  const { data: customersData } = trpc.customer.list.useQuery({ limit: 100 });
+  const { data: services } = trpc.service.list.useQuery();
 
   // Load customer name if customerId is provided
   useEffect(() => {
-    if (customerId && customers) {
-      const customer = customers.find((c) => c.id === customerId);
+    if (customerId && customersData?.customers) {
+      const customer = customersData.customers.find((c) => c.id === customerId);
       if (customer) {
         setInput(`for ${customer.name} `);
       }
     }
-  }, [customerId, customers]);
+  }, [customerId, customersData]);
 
   const parseInvoice = trpc.smartTemplates.parseQuickInvoice.useMutation();
   const createInvoice = trpc.invoice.create.useMutation({
@@ -58,23 +58,17 @@ export default function QuickInvoicePage() {
 
     createInvoice.mutate({
       customerId: parsed.customer.id,
-      serviceDate: parsed.date,
-      issueDate: new Date(),
+      serviceDate: new Date(parsed.date),
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      lineItems: [
-        {
-          serviceId: parsed.service.id,
-          description: `${parsed.service.name} - ${parsed.quantity} ${parsed.unit}`,
-          quantity: parsed.quantity,
-          unit: parsed.unit,
-          rate: parsed.rate,
-          amount: parsed.total,
-          order: 0,
-        },
-      ],
-      subtotal: parsed.total,
-      total: parsed.total,
-      status: 'DRAFT',
+      lineItems: parsed.lineItems.map((item: any, index: number) => ({
+        serviceId: item.service.id,
+        description: `${item.service.name} - ${item.quantity} ${item.unit}`,
+        quantity: item.quantity,
+        unit: item.unit,
+        rate: item.rate,
+        amount: item.amount,
+        order: index,
+      })),
       notes: `Created via quick entry: "${input}"`,
     });
   };
@@ -203,39 +197,6 @@ export default function QuickInvoicePage() {
                 </Link>
               </div>
 
-              {/* Service */}
-              <div className="p-4 bg-purple-50 rounded-lg">
-                <p className="text-xs font-medium text-purple-600 uppercase">Service</p>
-                <p className="text-lg font-semibold text-gray-900">{parsed.service.name}</p>
-                <p className="text-sm text-gray-500">{parsed.service.code}</p>
-              </div>
-
-              {/* Line Item Details */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs font-medium text-gray-500 uppercase">Quantity</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {parsed.quantity.toLocaleString()}
-                  </p>
-                  <p className="text-sm text-gray-500">{parsed.unit}</p>
-                </div>
-
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs font-medium text-gray-500 uppercase">Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    ${parsed.rate.toFixed(2)}
-                  </p>
-                  <p className="text-sm text-gray-500">per {parsed.unit}</p>
-                </div>
-
-                <div className="p-4 bg-green-50 rounded-lg">
-                  <p className="text-xs font-medium text-green-600 uppercase">Total</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    ${parsed.total.toFixed(2)}
-                  </p>
-                </div>
-              </div>
-
               {/* Date */}
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-xs font-medium text-gray-500 uppercase">Service Date</p>
@@ -248,16 +209,62 @@ export default function QuickInvoicePage() {
                   })}
                 </p>
               </div>
+
+              {/* Line Items */}
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-500 uppercase">Line Items</p>
+                {parsed.lineItems.map((item: any, index: number) => (
+                  <div key={index} className="p-4 bg-purple-50 rounded-lg border-l-4 border-purple-600">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-gray-900">{item.service.name}</p>
+                        <p className="text-sm text-gray-600">{item.service.code}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-gray-900">${item.amount.toFixed(2)}</p>
+                        <p className="text-sm text-gray-600">
+                          {item.quantity.toLocaleString()} {item.unit} @ ${item.rate.toFixed(2)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Total */}
+              <div className="p-4 bg-green-50 rounded-lg border-2 border-green-200">
+                <p className="text-xs font-medium text-green-600 uppercase">Total Amount</p>
+                <p className="text-3xl font-bold text-green-600">
+                  ${parsed.total.toFixed(2)}
+                </p>
+                {parsed.lineItems.length > 1 && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    {parsed.lineItems.length} line items
+                  </p>
+                )}
+              </div>
+
+              {/* Warnings */}
+              {parsed.warnings && parsed.warnings.length > 0 && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-xs font-medium text-yellow-800 uppercase mb-2">Warnings</p>
+                  <ul className="list-disc list-inside space-y-1">
+                    {parsed.warnings.map((warning: string, index: number) => (
+                      <li key={index} className="text-sm text-yellow-700">{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
 
             {/* Actions */}
             <div className="mt-6 flex space-x-3">
               <button
                 onClick={handleCreate}
-                disabled={createInvoice.isLoading}
+                disabled={createInvoice.isPending}
                 className="flex-1 px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
-                {createInvoice.isLoading ? 'Creating...' : '✓ Create Invoice'}
+                {createInvoice.isPending ? 'Creating...' : '✓ Create Invoice'}
               </button>
               <button
                 onClick={() => setParsed(null)}

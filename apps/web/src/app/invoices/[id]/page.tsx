@@ -8,7 +8,7 @@ export default function InvoiceDetailPage() {
   const params = useParams();
   const invoiceId = params.id as string;
 
-  const { data: invoice, isLoading } = trpc.invoice.getById.useQuery({ id: invoiceId });
+  const { data: invoice, isLoading } = trpc.invoice.get.useQuery({ id: invoiceId });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -199,7 +199,7 @@ export default function InvoiceDetailPage() {
                 </span>
               </div>
 
-              {invoice.taxAmount > 0 && (
+              {Number(invoice.taxAmount) > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Tax ({invoice.taxRate}%):</span>
                   <span className="font-medium text-gray-900">
@@ -208,7 +208,7 @@ export default function InvoiceDetailPage() {
                 </div>
               )}
 
-              {invoice.discount > 0 && (
+              {Number(invoice.discount) > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Discount:</span>
                   <span className="font-medium text-red-600">
@@ -278,7 +278,7 @@ export default function InvoiceDetailPage() {
                 <div className="ml-3">
                   <p className="text-sm text-gray-900">Payment received</p>
                   <p className="text-xs text-gray-500">
-                    {invoice.paidAt && new Date(invoice.paidAt).toLocaleString()}
+                    {invoice.paidDate && new Date(invoice.paidDate).toLocaleString()}
                   </p>
                 </div>
               </div>

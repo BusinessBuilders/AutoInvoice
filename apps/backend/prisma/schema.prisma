@@ -100,6 +100,9 @@ model Customer {
   tags            String[]
   customFields    Json?
 
+  // AI Vector Search
+  embedding       Unsupported("vector(1536)")?  // OpenAI text-embedding-3-small
+
   // Relations
   invoices        Invoice[]
   locations       Location[]
@@ -126,6 +129,9 @@ model Service {
   // Pricing
   basePrice       Decimal?
   priceUnit       String?   // "sqft", "hour", "unit"
+
+  // AI Vector Search
+  embedding       Unsupported("vector(1536)")?  // OpenAI text-embedding-3-small
 
   // Relations
   lineItems       LineItem[]
@@ -439,14 +445,14 @@ model Lead {
   // Conversion
   convertedToCustomerId String?
   convertedToCustomer   Customer? @relation(fields: [convertedToCustomerId], references: [id])
-  convertedToQuoteId    String?
-  convertedToQuote      Quote?    @relation(fields: [convertedToQuoteId], references: [id])
+  convertedToQuoteId    String?   @unique
+  convertedToQuote      Quote?    @relation("LeadConversion", fields: [convertedToQuoteId], references: [id])
   convertedAt     DateTime?
 
   // Relations
   reminders       Reminder[]
   followUps       FollowUp[]
-  quotes          Quote[]
+  quotes          Quote[]   @relation("LeadQuotes")
   notes           LeadNote[]
 
   // Metadata
@@ -524,10 +530,13 @@ model Quote {
   id              String    @id @default(cuid())
   quoteNumber     String    @unique
   leadId          String?
-  lead            Lead?     @relation(fields: [leadId], references: [id])
+  lead            Lead?     @relation("LeadQuotes", fields: [leadId], references: [id])
   customerId      String?
   customer        Customer? @relation(fields: [customerId], references: [id])
   userId          String?
+
+  // Reverse relation for lead conversion
+  convertedFromLead Lead?   @relation("LeadConversion")
 
   // Project Details
   projectType     String    // "hydroseed", "lawn-mowing", etc.

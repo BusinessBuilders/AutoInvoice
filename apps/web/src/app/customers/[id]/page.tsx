@@ -10,8 +10,8 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const customerId = params.id as string;
 
-  const { data: customer, isLoading } = trpc.customer.getById.useQuery({ id: customerId });
-  const { data: invoices } = trpc.invoice.list.useQuery({ customerId, limit: 10 });
+  const { data: customer, isLoading } = trpc.customer.get.useQuery({ id: customerId });
+  const { data: invoiceData } = trpc.invoice.list.useQuery({ customerId, limit: 10 });
 
   const [showPricingModal, setShowPricingModal] = useState(false);
   const [pricingForm, setPricingForm] = useState({
@@ -21,7 +21,7 @@ export default function CustomerDetailPage() {
   });
 
   const utils = trpc.useContext();
-  const { data: services } = trpc.service.list.useQuery({ limit: 100 });
+  const { data: services } = trpc.service.list.useQuery();
 
   const deleteCustomer = trpc.customer.delete.useMutation({
     onSuccess: () => {
@@ -31,7 +31,7 @@ export default function CustomerDetailPage() {
 
   const setPricingMutation = trpc.smartTemplates.setCustomerPricing.useMutation({
     onSuccess: () => {
-      utils.customer.getById.invalidate({ id: customerId });
+      utils.customer.get.invalidate({ id: customerId });
     },
   });
 
@@ -136,7 +136,6 @@ export default function CustomerDetailPage() {
                       <br />
                       {customer.city && `${customer.city}, `}
                       {customer.state} {customer.zipCode}
-                      {customer.country && <><br />{customer.country}</>}
                     </dd>
                   </div>
                 )}
@@ -208,9 +207,9 @@ export default function CustomerDetailPage() {
                 </Link>
               </div>
 
-              {invoices && invoices.length > 0 ? (
+              {invoiceData?.invoices && invoiceData.invoices.length > 0 ? (
                 <div className="space-y-3">
-                  {invoices.map((invoice: any) => (
+                  {invoiceData.invoices.map((invoice: any) => (
                     <Link
                       key={invoice.id}
                       href={`/invoices/${invoice.id}`}
@@ -257,13 +256,13 @@ export default function CustomerDetailPage() {
                 <div>
                   <p className="text-sm text-gray-500">Total Invoices</p>
                   <p className="text-2xl font-bold text-gray-900">
-                    {invoices?.length || 0}
+                    {invoiceData?.invoices?.length || 0}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500">Total Revenue</p>
                   <p className="text-2xl font-bold text-green-600">
-                    ${invoices?.reduce((sum: number, inv: any) => sum + parseFloat(inv.total), 0).toFixed(2) || '0.00'}
+                    ${invoiceData?.invoices?.reduce((sum: number, inv: any) => sum + parseFloat(inv.total), 0).toFixed(2) || '0.00'}
                   </p>
                 </div>
                 <div>
@@ -354,10 +353,10 @@ export default function CustomerDetailPage() {
                     alert(`Error: ${err.message}`);
                   }
                 }}
-                disabled={setPricingMutation.isLoading}
+                disabled={setPricingMutation.isPending}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {setPricingMutation.isLoading ? 'Saving...' : 'Save'}
+                {setPricingMutation.isPending ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>
