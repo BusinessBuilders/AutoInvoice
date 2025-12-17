@@ -34,12 +34,40 @@ export const pdfGenerationWorker = new Worker<PdfGenerationJob>(
         throw new Error(`Invoice ${invoiceId} not found`);
       }
 
+      // Fetch user branding (single-user system, get first user)
+      const user = await prisma.user.findFirst({
+        select: {
+          logoPath: true,
+          brandColors: true,
+          companyName: true,
+          companyAddress: true,
+          companyPhone: true,
+          companyEmail: true,
+          companyWebsite: true,
+          companyTaxId: true,
+        },
+      });
+
+      // Prepare branding options
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const logoPath = user?.logoPath ? path.join(uploadDir, user.logoPath) : undefined;
+      const brandColors = user?.brandColors as any;
+      const primaryColor = brandColors?.primary || process.env.BRAND_COLOR || '#2563eb';
+
       // Generate PDF
       const pdfBuffer = await generateInvoicePdf({
         invoiceId,
         template,
-        logoPath: process.env.COMPANY_LOGO_PATH,
-        brandColor: process.env.BRAND_COLOR,
+        logoPath,
+        brandColor: primaryColor,
+        companyInfo: user ? {
+          name: user.companyName || process.env.COMPANY_NAME || 'AutoInvoice',
+          address: user.companyAddress || process.env.COMPANY_ADDRESS,
+          phone: user.companyPhone || process.env.COMPANY_PHONE,
+          email: user.companyEmail || process.env.COMPANY_EMAIL,
+          website: user.companyWebsite || process.env.COMPANY_WEBSITE,
+          taxId: user.companyTaxId || process.env.COMPANY_TAX_ID,
+        } : undefined,
       });
 
       // Save PDF to disk

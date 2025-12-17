@@ -137,6 +137,87 @@ export const invoiceRouter = router({
       });
     }),
 
+  // Update invoice
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        customerId: z.string().optional(),
+        locationId: z.string().optional(),
+        serviceAddress: z.string().optional(),
+        serviceDate: z.coerce.date().optional(),
+        dueDate: z.coerce.date().optional(),
+        lineItems: z.array(lineItemSchema.extend({ id: z.string().optional() })).optional(),
+        notes: z.string().optional(),
+        terms: z.string().optional(),
+        taxRate: z.number().optional(),
+        discount: z.number().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, lineItems, taxRate, discount, ...invoiceData } = input;
+
+      // Get current invoice to preserve existing values
+      const currentInvoice = await ctx.prisma.invoice.findUnique({
+        where: { id },
+        include: { lineItems: true },
+      });
+
+      if (!currentInvoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Use provided values or fall back to current values
+      const finalTaxRate = taxRate !== undefined ? taxRate : currentInvoice.taxRate;
+      const finalDiscount = discount !== undefined ? discount : currentInvoice.discount;
+
+      // If line items are provided, recalculate totals
+      let updates: any = { ...invoiceData };
+
+      if (lineItems) {
+        const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
+        const taxAmount = subtotal * (finalTaxRate / 100);
+        const total = subtotal + taxAmount - finalDiscount;
+
+        updates.subtotal = subtotal;
+        updates.taxRate = finalTaxRate;
+        updates.taxAmount = taxAmount;
+        updates.discount = finalDiscount;
+        updates.total = total;
+
+        // Delete all existing line items and create new ones
+        await ctx.prisma.lineItem.deleteMany({
+          where: { invoiceId: id },
+        });
+
+        updates.lineItems = {
+          create: lineItems.map(({ id: _id, ...item }) => item),
+        };
+      } else if (taxRate !== undefined || discount !== undefined) {
+        // Recalculate with existing line items if tax/discount changed
+        const subtotal = currentInvoice.subtotal;
+        const taxAmount = subtotal * (finalTaxRate / 100);
+        const total = subtotal + taxAmount - finalDiscount;
+
+        updates.taxRate = finalTaxRate;
+        updates.taxAmount = taxAmount;
+        updates.discount = finalDiscount;
+        updates.total = total;
+      }
+
+      return ctx.prisma.invoice.update({
+        where: { id },
+        data: updates,
+        include: {
+          customer: true,
+          lineItems: {
+            include: { service: true },
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
+    }),
+
   // Update invoice status
   updateStatus: protectedProcedure
     .input(
@@ -171,6 +252,71 @@ export const invoiceRouter = router({
       return ctx.prisma.invoice.delete({
         where: { id: input.id },
       });
+    }),
+
+  // Download PDF
+  downloadPdf: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { generateInvoicePdf } = await import('../services/pdf/professional-generator');
+      const path = await import('path');
+
+      // Fetch invoice
+      const invoice = await ctx.prisma.invoice.findUnique({
+        where: { id: input.id },
+        include: {
+          customer: true,
+          lineItems: {
+            include: { service: true },
+          },
+        },
+      });
+
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Fetch user branding
+      const user = await ctx.prisma.user.findFirst({
+        select: {
+          logoPath: true,
+          brandColors: true,
+          companyName: true,
+          companyAddress: true,
+          companyPhone: true,
+          companyEmail: true,
+          companyWebsite: true,
+          companyTaxId: true,
+        },
+      });
+
+      // Prepare branding options
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      const logoPath = user?.logoPath ? path.join(uploadDir, user.logoPath) : undefined;
+      const brandColors = user?.brandColors as any;
+      const primaryColor = brandColors?.primary || process.env.BRAND_COLOR || '#2563eb';
+
+      // Generate PDF
+      const pdfBuffer = await generateInvoicePdf({
+        invoiceId: input.id,
+        template: 'professional',
+        logoPath,
+        brandColor: primaryColor,
+        companyInfo: user ? {
+          name: user.companyName || process.env.COMPANY_NAME || 'AutoInvoice',
+          address: user.companyAddress || process.env.COMPANY_ADDRESS,
+          phone: user.companyPhone || process.env.COMPANY_PHONE,
+          email: user.companyEmail || process.env.COMPANY_EMAIL,
+          website: user.companyWebsite || process.env.COMPANY_WEBSITE,
+          taxId: user.companyTaxId || process.env.COMPANY_TAX_ID,
+        } : undefined,
+      });
+
+      // Return PDF as base64
+      return {
+        filename: `${invoice.invoiceNumber}.pdf`,
+        data: pdfBuffer.toString('base64'),
+      };
     }),
 
   // Get stats

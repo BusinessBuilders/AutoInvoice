@@ -26,6 +26,9 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Serve uploaded files (logos, etc.)
+app.use('/logos', express.static(path.join(env.UPLOAD_DIR, 'logos')));
+
 // File upload configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {

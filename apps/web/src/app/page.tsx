@@ -38,12 +38,20 @@ export default function Home() {
               AI-powered invoice automation platform
             </p>
           </div>
-          <button
-            onClick={logout}
-            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Logout
-          </button>
+          <div className="flex space-x-3">
+            <Link
+              href="/settings"
+              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              ⚙️ Settings
+            </Link>
+            <button
+              onClick={logout}
+              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              Logout
+            </button>
+          </div>
         </div>
 
         {/* Quick Actions */}

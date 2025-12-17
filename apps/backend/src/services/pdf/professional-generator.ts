@@ -16,6 +16,7 @@ export interface InvoicePdfOptions {
   letterheadPath?: string; // Path to letterhead image
   brandColor?: string; // Hex color for branding
   logoPath?: string; // Path to company logo
+  companyInfo?: CompanyInfo; // Custom company info from user branding
 }
 
 export interface CompanyInfo {
@@ -77,6 +78,7 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
   const brandColor = hexToRgb(options.brandColor || '#2563eb');
 
   let currentY = height - 40;
+  const startY = currentY; // Save the starting Y position for company info
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // LETTERHEAD / LOGO
@@ -101,9 +103,9 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
     }
   }
 
-  // Company Info (right side)
-  const companyInfo = getCompanyInfo();
-  drawCompanyInfo(page, regularFont, companyInfo, width - 50, currentY);
+  // Company Info (right side) - draw at the top
+  const companyInfo = options.companyInfo || getCompanyInfo();
+  drawCompanyInfo(page, regularFont, companyInfo, width - 50, startY);
 
   currentY -= 100;
 
@@ -575,20 +577,33 @@ function hexToRgb(hex: string) {
 }
 
 function wrapText(text: string, maxWidth: number, font: any, size: number): string[] {
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let currentLine = '';
+  // Handle newlines first by splitting them
+  const paragraphs = text.split('\n');
+  const allLines: string[] = [];
 
-  words.forEach((word) => {
-    const testLine = currentLine + (currentLine ? ' ' : '') + word;
-    if (font.widthOfTextAtSize(testLine, size) < maxWidth) {
-      currentLine = testLine;
-    } else {
-      if (currentLine) lines.push(currentLine);
-      currentLine = word;
+  paragraphs.forEach((paragraph) => {
+    // Skip empty paragraphs but preserve them as blank lines
+    if (!paragraph.trim()) {
+      allLines.push('');
+      return;
     }
+
+    const words = paragraph.split(' ');
+    let currentLine = '';
+
+    words.forEach((word) => {
+      const testLine = currentLine + (currentLine ? ' ' : '') + word;
+      // Only measure width if we have content
+      if (testLine.trim() && font.widthOfTextAtSize(testLine.trim(), size) < maxWidth) {
+        currentLine = testLine;
+      } else {
+        if (currentLine) allLines.push(currentLine);
+        currentLine = word;
+      }
+    });
+
+    if (currentLine) allLines.push(currentLine);
   });
 
-  if (currentLine) lines.push(currentLine);
-  return lines;
+  return allLines;
 }

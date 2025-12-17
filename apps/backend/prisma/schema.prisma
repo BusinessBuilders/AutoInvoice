@@ -22,6 +22,16 @@ model User {
   twoFactorEnabled Boolean  @default(false)
   twoFactorSecret  String?
 
+  // Company Branding (for PDF invoices)
+  logoPath        String?   // Path to uploaded logo file
+  brandColors     Json?     // Extracted colors: {primary, secondary, accent, background}
+  companyName     String?
+  companyAddress  String?
+  companyPhone    String?
+  companyEmail    String?
+  companyWebsite  String?
+  companyTaxId    String?
+
   // Relations
   assignedTasks   Task[]    @relation("AssignedTo")
   createdTasks    Task[]    @relation("CreatedBy")
