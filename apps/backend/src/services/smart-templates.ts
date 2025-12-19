@@ -36,6 +36,7 @@ export interface QuickInvoiceResult {
   subtotal: number;
   total: number;
   date: Date;
+  serviceLocation?: string;
   confidence: number;
   warnings?: string[];
 }
@@ -51,24 +52,93 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
   // Use AI to extract structured data
   const aiParsed = await aiRouter.parseInvoice(text);
 
-  // Find customer (by name or nickname)
-  const customer = await findCustomer(aiParsed.customerName);
-
-  if (!customer) {
-    throw new Error(`Customer "${aiParsed.customerName}" not found. Add them first with: npm run cli customer:add`);
-  }
-
   // Process all services into line items
   const lineItems: QuickInvoiceLineItem[] = [];
   const warnings: string[] = [];
 
+  // Find customer (by name or nickname)
+  let customer = await findCustomer(aiParsed.customerName);
+
+  if (!customer) {
+    // Auto-create the new customer
+    customer = await quickAddCustomer({
+      name: aiParsed.customerName,
+      nickname: [aiParsed.customerName],
+    });
+    warnings.push(`✨ New customer "${customer.name}" auto-created`);
+    logger.info('Auto-created customer', { name: customer.name, id: customer.id });
+  }
+
   for (const serviceInfo of aiParsed.services) {
     // Find matching service in database
-    const service = await findService(serviceInfo.description);
+    let service = await findService(serviceInfo.description);
+
+    const desc = serviceInfo.description;
+
+    // Extract unit from ORIGINAL TEXT (since AI might strip it)
+    const unitMatch = text.match(/(sqft|sq\s*ft|square\s*feet?|feet|ft|hours?|hrs?|acres?|units?|tanks?)/i);
+    const priceUnit = unitMatch ? unitMatch[1].toLowerCase().replace(/\s+/g, '') : 'unit';
+
+    // Try to extract price from ORIGINAL TEXT (AI doesn't extract pricing)
+    let detectedPrice = serviceInfo.rate || 0;
+    // Match numbers like: 10, 0.10, .10, 5.50
+    const numberPattern = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)';
+
+    // Check for $ sign followed by cents (e.g., "$0.10 cents per" means $0.10, not 0.10 cents)
+    const dollarCentsMatch = text.match(new RegExp(`\\$\\s*(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
+    if (dollarCentsMatch) {
+      detectedPrice = parseFloat(dollarCentsMatch[1]); // Already in dollars, don't divide
+    } else {
+      // Check for cents without $ (e.g., "10 cents per" → $0.10)
+      const centsMatch = text.match(new RegExp(`(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
+      if (centsMatch) {
+        detectedPrice = parseFloat(centsMatch[1]) / 100; // Convert cents to dollars
+      } else {
+        // Check for dollar amounts (e.g., "$5 per" or "5 per")
+        const dollarMatch = text.match(new RegExp(`\\$?\\s*(${numberPattern})\\s*(?:per|\/|each)`, 'i'));
+        if (dollarMatch) {
+          detectedPrice = parseFloat(dollarMatch[1]);
+        }
+      }
+    }
 
     if (!service) {
-      warnings.push(`Service "${serviceInfo.description}" not found in database - skipped`);
-      continue;
+      // Auto-create the new service
+      // Clean service name (remove quantity and unit prefixes)
+      const serviceName = desc
+        .replace(/^\d+\s*(sqft|sq\s*ft|square\s*feet?|feet|ft|hours?|hrs?|acres?|units?|tanks?)\s+(of\s+)?/i, '')
+        .trim();
+
+      // Generate code
+      const serviceCode = (serviceName || desc)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .substring(0, 20);
+
+      service = await quickAddService({
+        name: serviceName || desc,
+        code: serviceCode || 'new-service',
+        category: 'General',
+        basePrice: detectedPrice,
+        priceUnit: priceUnit,
+      });
+
+      warnings.push(`✨ New service "${service.name}" auto-created with code "${service.code}" (${detectedPrice > 0 ? `$${detectedPrice}/${priceUnit}` : 'no price set'})`);
+      logger.info('Auto-created service', { name: service.name, code: service.code, basePrice: service.basePrice, priceUnit: service.priceUnit });
+    } else if (detectedPrice > 0 && Number(service.basePrice) === 0) {
+      // Update existing service with detected price if it currently has no price
+      await prisma.service.update({
+        where: { id: service.id },
+        data: {
+          basePrice: detectedPrice,
+          priceUnit: priceUnit,
+        },
+      });
+      service.basePrice = detectedPrice as any;
+      service.priceUnit = priceUnit;
+      warnings.push(`💡 Updated "${service.name}" price to $${detectedPrice}/${priceUnit}`);
+      logger.info('Updated service price', { name: service.name, basePrice: detectedPrice, priceUnit });
     }
 
     // Check for customer-specific pricing
@@ -122,6 +192,7 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
     subtotal,
     total: subtotal,
     date: new Date(aiParsed.serviceDate),
+    serviceLocation: aiParsed.serviceLocation,
     confidence: aiParsed.confidence,
     warnings: warnings.length > 0 ? warnings : undefined,
   };
@@ -150,6 +221,7 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
       invoiceNumber,
       customerId: parsed.customer.id,
       serviceDate: parsed.date,
+      serviceAddress: parsed.serviceLocation,
       issueDate: new Date(),
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
       subtotal: parsed.subtotal,

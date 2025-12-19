@@ -2,7 +2,7 @@
 
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 
 interface EditableLineItem {
@@ -18,9 +18,11 @@ interface EditableLineItem {
 
 export default function InvoiceDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const invoiceId = params.id as string;
   const [isDownloading, setIsDownloading] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editedLineItems, setEditedLineItems] = useState<EditableLineItem[]>([]);
   const [editedNotes, setEditedNotes] = useState('');
   const [editedServiceDate, setEditedServiceDate] = useState('');
@@ -28,6 +30,7 @@ export default function InvoiceDetailPage() {
 
   const { data: invoice, isLoading, refetch } = trpc.invoice.get.useQuery({ id: invoiceId });
   const updateInvoiceMutation = trpc.invoice.update.useMutation();
+  const deleteInvoiceMutation = trpc.invoice.delete.useMutation();
   const downloadPdfMutation = trpc.invoice.downloadPdf.useQuery(
     { id: invoiceId },
     { enabled: false }
@@ -150,20 +153,30 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const handleDeleteInvoice = async () => {
+    try {
+      await deleteInvoiceMutation.mutateAsync({ id: invoiceId });
+      router.push('/invoices');
+    } catch (error: any) {
+      alert(`Failed to delete invoice: ${error.message}`);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const calculateSubtotal = () => {
     return editedLineItems.reduce((sum, item) => sum + item.amount, 0);
   };
 
   const calculateTax = () => {
     const subtotal = calculateSubtotal();
-    const taxRate = invoice?.taxRate || 0;
+    const taxRate = Number(invoice?.taxRate || 0);
     return subtotal * (taxRate / 100);
   };
 
   const calculateTotal = () => {
     const subtotal = calculateSubtotal();
     const tax = calculateTax();
-    const discount = invoice?.discount || 0;
+    const discount = Number(invoice?.discount || 0);
     return subtotal + tax - discount;
   };
 
@@ -246,6 +259,12 @@ export default function InvoiceDetailPage() {
                   </button>
                   <button className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
                     📧 Send Email
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
+                  >
+                    🗑️ Delete
                   </button>
                 </>
               ) : (
@@ -604,6 +623,34 @@ export default function InvoiceDetailPage() {
             )}
           </div>
         </div>
+
+        {/* Delete Confirmation Dialog */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Invoice?</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Are you sure you want to delete invoice {invoice.invoiceNumber}? This action cannot be undone.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleteInvoiceMutation.isPending}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteInvoice}
+                  disabled={deleteInvoiceMutation.isPending}
+                  className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteInvoiceMutation.isPending ? 'Deleting...' : 'Delete Invoice'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

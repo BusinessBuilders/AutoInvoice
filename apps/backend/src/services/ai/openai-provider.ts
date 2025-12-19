@@ -31,7 +31,15 @@ CRITICAL RULES - READ CAREFULLY:
    - Look for capitalized words that seem like names
    - If uncertain, extract the most likely customer name
 
-2. DATE EXTRACTION:
+2. LOCATION/ADDRESS EXTRACTION:
+   - Look for "at", "on", "@" followed by an address or location
+   - Examples: "at 123 Main Street", "on Oak Avenue", "at the office building"
+   - Can be full address: "123 Main St, Springfield"
+   - Can be partial: "the Smith residence", "office building on Oak Ave"
+   - Can be property name: "at Greenfield Plaza", "at the warehouse"
+   - If no location mentioned, leave blank
+
+3. DATE EXTRACTION:
    - "today" = ${today}
    - "yesterday" = calculate yesterday
    - Specific dates = parse to YYYY-MM-DD
@@ -87,14 +95,23 @@ Return JSON structure:
 {
   "customerName": "string",
   "serviceDate": "YYYY-MM-DD",
+  "serviceLocation": "string (optional - address/location where work was performed)",
   "services": [
     {
       "description": "string (brief: action + target)",
       "quantity": number,
-      "rate": 0,
-      "amount": 0
+      "rate": number (rate per unit in dollars - extract from text if mentioned, otherwise 0),
+      "amount": number (quantity * rate)
     }
   ],
+
+  PRICING EXTRACTION RULES:
+  - If pricing is mentioned, extract it and convert to dollars per unit
+  - "10 cents per sqft" → rate: 0.10
+  - ".10 cents per sqft" or "$0.10 cents per sqft" → rate: 0.10
+  - "$5 per hour" → rate: 5.00
+  - "50 cents each" → rate: 0.50
+  - If no pricing mentioned → rate: 0
   "notes": "string (optional - include relevant context like snow storm details)",
   "confidence": number (0-1)
 }`;
@@ -183,7 +200,7 @@ Return a JSON object with this structure:
 }`;
 
     const completion = await this.client.chat.completions.create({
-      model: 'gpt-4-vision-preview',
+      model: this.model, // Use configured model (gpt-4o has vision capabilities)
       messages: [
         {
           role: 'user',
@@ -201,7 +218,12 @@ Return a JSON object with this structure:
       max_tokens: 1000,
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{}');
+    let content = completion.choices[0].message.content || '{}';
+
+    // Strip markdown code blocks if present
+    content = content.replace(/^```json\s*/i, '').replace(/\s*```$/,'');
+
+    const result = JSON.parse(content);
     logger.info('OpenAI: Receipt extracted successfully', { confidence: result.confidence });
 
     return result as ReceiptData;
@@ -237,7 +259,7 @@ Be careful to:
 - Set confidence based on image clarity and data completeness`;
 
     const completion = await this.client.chat.completions.create({
-      model: 'gpt-4-vision-preview',
+      model: this.model, // Use configured model (gpt-4o has vision capabilities)
       messages: [
         {
           role: 'user',
@@ -255,7 +277,12 @@ Be careful to:
       max_tokens: 1000,
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{}');
+    let content = completion.choices[0].message.content || '{}';
+
+    // Strip markdown code blocks if present
+    content = content.replace(/^```json\s*/i, '').replace(/\s*```$/,'');
+
+    const result = JSON.parse(content);
     logger.info('OpenAI: Check extracted successfully', {
       checkNumber: result.checkNumber,
       amount: result.amount,

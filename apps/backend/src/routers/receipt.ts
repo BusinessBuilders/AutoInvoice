@@ -13,6 +13,8 @@ export const receiptRouter = router({
       z.object({
         imageBase64: z.string(),
         filename: z.string().optional(),
+        paymentMethod: z.enum(['credit_card', 'debit_card', 'cash', 'check', 'other']).optional(),
+        notes: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -24,12 +26,14 @@ export const receiptRouter = router({
           userId: ctx.user.id,
           size: imageBuffer.length,
           filename: input.filename,
+          paymentMethod: input.paymentMethod,
+          hasNotes: !!input.notes,
         });
 
         // Extract receipt data using AI vision
         const receiptData = await aiRouter.extractReceipt(imageBuffer);
 
-        // Create receipt record
+        // Create receipt record with image data
         const receipt = await prisma.receipt.create({
           data: {
             userId: ctx.user.id,
@@ -39,15 +43,21 @@ export const receiptRouter = router({
             category: receiptData.category,
             confidence: receiptData.confidence,
             ocrData: receiptData as any,
-            imageUrl: null, // TODO: Store in S3/storage
+            imageData: imageBuffer, // Save image to database
+            imageUrl: null, // Optional: Can add S3/storage URL later
+            paymentMethod: input.paymentMethod || null,
+            notes: input.notes || null,
             status: receiptData.confidence > 0.7 ? 'processed' : 'review_needed',
           },
         });
 
-        logger.info('Receipt processed successfully', {
+        logger.info('Receipt processed and saved successfully', {
           receiptId: receipt.id,
           vendor: receiptData.vendor,
           amount: receiptData.amount,
+          hasImage: true,
+          imageSize: imageBuffer.length,
+          paymentMethod: input.paymentMethod,
         });
 
         return {
@@ -128,7 +138,11 @@ export const receiptRouter = router({
         throw new Error('Receipt not found');
       }
 
-      return receipt;
+      // Convert imageData Buffer to base64 string for client
+      return {
+        ...receipt,
+        imageData: receipt.imageData ? receipt.imageData.toString('base64') : null,
+      };
     }),
 
   /**
@@ -271,6 +285,33 @@ export const receiptRouter = router({
         },
       });
 
+      return receipt;
+    }),
+
+  /**
+   * Update receipt details
+   */
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        category: z.string().optional(),
+        notes: z.string().optional(),
+        paymentMethod: z.enum(['credit_card', 'debit_card', 'cash', 'check', 'other']).optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { id, ...updateData } = input;
+
+      const receipt = await prisma.receipt.update({
+        where: {
+          id,
+          userId: ctx.user.id,
+        },
+        data: updateData,
+      });
+
+      logger.info('Receipt updated', { receiptId: id, fields: Object.keys(updateData) });
       return receipt;
     }),
 

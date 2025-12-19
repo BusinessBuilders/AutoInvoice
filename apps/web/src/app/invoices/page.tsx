@@ -3,19 +3,23 @@
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 export default function InvoicesPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const customerId = searchParams.get('customerId');
 
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<{ id: string; number: string } | null>(null);
 
-  const { data: invoicesData, isLoading } = trpc.invoice.list.useQuery({
+  const { data: invoicesData, isLoading, refetch } = trpc.invoice.list.useQuery({
     customerId: customerId || undefined,
     limit: 100,
   });
+  const deleteInvoiceMutation = trpc.invoice.delete.useMutation();
 
   const filteredInvoices = invoicesData?.invoices?.filter((invoice) => {
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
@@ -35,6 +39,27 @@ export default function InvoicesPage() {
       case 'DRAFT':
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, invoice: { id: string; invoiceNumber: string }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setInvoiceToDelete({ id: invoice.id, number: invoice.invoiceNumber });
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+
+    try {
+      await deleteInvoiceMutation.mutateAsync({ id: invoiceToDelete.id });
+      await refetch();
+      setShowDeleteConfirm(false);
+      setInvoiceToDelete(null);
+    } catch (error: any) {
+      alert(`Failed to delete invoice: ${error.message}`);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -96,12 +121,12 @@ export default function InvoicesPage() {
           <div className="bg-white shadow overflow-hidden sm:rounded-md">
             <ul className="divide-y divide-gray-200">
               {filteredInvoices.map((invoice) => (
-                <li key={invoice.id}>
+                <li key={invoice.id} className="relative">
                   <Link
                     href={`/invoices/${invoice.id}`}
                     className="block hover:bg-gray-50 transition-colors"
                   >
-                    <div className="px-4 py-4 sm:px-6">
+                    <div className="px-4 py-4 sm:px-6 pr-20">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center">
@@ -148,6 +173,13 @@ export default function InvoicesPage() {
                       </div>
                     </div>
                   </Link>
+                  <button
+                    onClick={(e) => handleDeleteClick(e, invoice)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                    title="Delete invoice"
+                  >
+                    🗑️
+                  </button>
                 </li>
               ))}
             </ul>
@@ -260,6 +292,37 @@ export default function InvoicesPage() {
                     </dl>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Dialog */}
+        {showDeleteConfirm && invoiceToDelete && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Invoice?</h3>
+              <p className="text-sm text-gray-600 mb-6">
+                Are you sure you want to delete invoice {invoiceToDelete.number}? This action cannot be undone.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setInvoiceToDelete(null);
+                  }}
+                  disabled={deleteInvoiceMutation.isPending}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteInvoice}
+                  disabled={deleteInvoiceMutation.isPending}
+                  className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
+                >
+                  {deleteInvoiceMutation.isPending ? 'Deleting...' : 'Delete Invoice'}
+                </button>
               </div>
             </div>
           </div>

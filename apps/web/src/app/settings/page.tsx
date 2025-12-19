@@ -32,6 +32,12 @@ export default function SettingsPage() {
   const updateInfoMutation = trpc.branding.updateInfo.useMutation();
   const deleteLogoMutation = trpc.branding.deleteLogo.useMutation();
 
+  // Data backup/restore
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [clearExisting, setClearExisting] = useState(false);
+  const exportDataQuery = trpc.gdpr.exportData.useQuery(undefined, { enabled: false });
+  const importDataMutation = trpc.gdpr.importData.useMutation();
+
   // Load existing branding data
   useEffect(() => {
     if (branding) {
@@ -99,6 +105,67 @@ export default function SettingsPage() {
       alert('Company information updated successfully');
     } catch (error: any) {
       alert(`Failed to update information: ${error.message}`);
+    }
+  };
+
+  const handleExportData = async () => {
+    try {
+      const data = await exportDataQuery.refetch();
+
+      if (!data.data) {
+        throw new Error('No data to export');
+      }
+
+      // Create JSON file and download
+      const jsonString = JSON.stringify(data.data, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `autoinvoice-backup-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      alert('Data exported successfully!');
+    } catch (error: any) {
+      alert(`Failed to export data: ${error.message}`);
+    }
+  };
+
+  const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportFile(file);
+    }
+  };
+
+  const handleImportData = async () => {
+    if (!importFile) return;
+
+    if (!confirm(
+      clearExisting
+        ? 'This will DELETE all existing data and replace it with the imported data. Are you sure?'
+        : 'This will import the data and merge it with your existing data. Continue?'
+    )) {
+      return;
+    }
+
+    try {
+      const fileContent = await importFile.text();
+      const parsedData = JSON.parse(fileContent);
+
+      await importDataMutation.mutateAsync({
+        data: parsedData,
+        clearExisting,
+      });
+
+      alert('Data imported successfully! Refresh the page to see changes.');
+      setImportFile(null);
+      router.refresh();
+    } catch (error: any) {
+      alert(`Failed to import data: ${error.message}`);
     }
   };
 
@@ -340,6 +407,99 @@ export default function SettingsPage() {
             >
               {updateInfoMutation.isPending ? 'Saving...' : 'Save Information'}
             </button>
+          </div>
+        </div>
+
+        {/* Data Backup & Restore */}
+        <div className="bg-white shadow rounded-lg p-6 mt-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Data Backup & Restore
+          </h2>
+          <p className="text-sm text-gray-600 mb-6">
+            Export all your data to a JSON file for backup, or restore from a previous backup.
+          </p>
+
+          {/* Export Section */}
+          <div className="border-b border-gray-200 pb-6 mb-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-3">Export Data</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Download all your invoices, customers, services, receipts, leads, and quotes as a JSON file.
+            </p>
+            <button
+              onClick={handleExportData}
+              disabled={exportDataQuery.isFetching}
+              className="inline-flex items-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+            >
+              {exportDataQuery.isFetching ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Exporting...
+                </>
+              ) : (
+                <>📥 Download Backup</>
+              )}
+            </button>
+          </div>
+
+          {/* Import Section */}
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-3">Import Data</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Restore your data from a previously exported JSON backup file.
+            </p>
+
+            <div className="space-y-4">
+              <div className="flex items-start">
+                <input
+                  type="checkbox"
+                  id="clearExisting"
+                  checked={clearExisting}
+                  onChange={(e) => setClearExisting(e.target.checked)}
+                  className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="clearExisting" className="ml-2">
+                  <span className="text-sm font-medium text-gray-900">Clear existing data before import</span>
+                  <p className="text-xs text-red-600 mt-1">
+                    Warning: This will permanently delete all your current data!
+                  </p>
+                </label>
+              </div>
+
+              <div>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportFileSelect}
+                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                />
+                {importFile && (
+                  <p className="mt-2 text-sm text-gray-600">
+                    Selected: {importFile.name}
+                  </p>
+                )}
+              </div>
+
+              <button
+                onClick={handleImportData}
+                disabled={!importFile || importDataMutation.isPending}
+                className="inline-flex items-center px-6 py-3 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {importDataMutation.isPending ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Importing...
+                  </>
+                ) : (
+                  <>📤 Import Backup</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { z } from 'zod';
 export const InvoiceDataSchema = z.object({
   customerName: z.string(),
   serviceDate: z.string(),
+  serviceLocation: z.string().optional(),
   services: z.array(z.object({
     description: z.string(),
     quantity: z.number(),

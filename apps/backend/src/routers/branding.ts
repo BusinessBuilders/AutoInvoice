@@ -88,7 +88,7 @@ export const brandingRouter = router({
       where: { id: userId },
       data: {
         logoPath: null,
-        brandColors: null,
+        brandColors: undefined,
       },
     });
 

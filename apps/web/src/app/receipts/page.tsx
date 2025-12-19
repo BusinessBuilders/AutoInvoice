@@ -2,45 +2,33 @@
 
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function ReceiptsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showError, setShowError] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // TODO: Replace with actual tRPC query
-  const receipts = [
-    {
-      id: '1',
-      vendor: 'Home Depot',
-      amount: 147.83,
-      date: new Date('2024-01-15'),
-      category: 'Materials',
-      status: 'processed',
-      confidence: 0.94,
-      imageUrl: null,
-    },
-    {
-      id: '2',
-      vendor: "Lowe's",
-      amount: 89.50,
-      date: new Date('2024-01-14'),
-      category: 'Tools',
-      status: 'processed',
-      confidence: 0.88,
-      imageUrl: null,
-    },
-    {
-      id: '3',
-      vendor: 'Office Depot',
-      amount: 45.99,
-      date: new Date('2024-01-13'),
-      category: 'Office Supplies',
-      status: 'pending',
-      confidence: 0.76,
-      imageUrl: null,
-    },
-  ];
+  // Fetch actual receipts from database
+  const { data: receiptsData, isLoading, error } = trpc.receipt.list.useQuery({
+    limit: 100,
+    offset: 0,
+    status: statusFilter as 'all' | 'processed' | 'review_needed' | 'pending',
+  });
+
+  // Show error toast if query fails
+  useEffect(() => {
+    if (error) {
+      setErrorMessage(`Failed to load receipts: ${error.message}`);
+      setShowError(true);
+      console.error('Receipt list error:', error);
+    }
+  }, [error]);
+
+  const receipts = receiptsData || [];
+
+  console.log('Receipts page:', { isLoading, receiptsCount: receipts.length, error: error?.message });
 
   const filteredReceipts = receipts.filter((receipt) => {
     const matchesSearch = receipt.vendor.toLowerCase().includes(search.toLowerCase()) ||
@@ -49,11 +37,25 @@ export default function ReceiptsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const totalAmount = filteredReceipts.reduce((sum, r) => sum + r.amount, 0);
+  const totalAmount = filteredReceipts.reduce((sum, r) => sum + Number(r.amount), 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Toast */}
+        {showError && (
+          <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <strong className="font-bold">Error!</strong>
+            <span className="block sm:inline"> {errorMessage}</span>
+            <button
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+              onClick={() => setShowError(false)}
+            >
+              <span className="text-2xl">&times;</span>
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="md:flex md:items-center md:justify-between mb-8">
           <div className="flex-1 min-w-0">
@@ -185,7 +187,7 @@ export default function ReceiptsPage() {
 
                             <div className="mt-2 flex items-center text-sm text-gray-500">
                               <span className="mr-4">
-                                📅 {receipt.date.toLocaleDateString()}
+                                📅 {new Date(receipt.date).toLocaleDateString()}
                               </span>
                               {receipt.category && (
                                 <span className="mr-4">
@@ -193,7 +195,7 @@ export default function ReceiptsPage() {
                                 </span>
                               )}
                               <span>
-                                🎯 {(receipt.confidence * 100).toFixed(0)}% confidence
+                                🎯 {((receipt.confidence || 0) * 100).toFixed(0)}% confidence
                               </span>
                             </div>
                           </div>
@@ -203,7 +205,7 @@ export default function ReceiptsPage() {
                       <div className="ml-5 flex items-center space-x-4">
                         <div className="text-right">
                           <p className="text-2xl font-bold text-gray-900">
-                            ${receipt.amount.toFixed(2)}
+                            ${Number(receipt.amount).toFixed(2)}
                           </p>
                         </div>
 
@@ -214,9 +216,12 @@ export default function ReceiptsPage() {
                           >
                             Create Invoice
                           </Link>
-                          <button className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50">
+                          <Link
+                            href={`/receipts/${receipt.id}`}
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                          >
                             View Details
-                          </button>
+                          </Link>
                         </div>
                       </div>
                     </div>

@@ -167,9 +167,9 @@ export const invoiceRouter = router({
         throw new Error('Invoice not found');
       }
 
-      // Use provided values or fall back to current values
-      const finalTaxRate = taxRate !== undefined ? taxRate : currentInvoice.taxRate;
-      const finalDiscount = discount !== undefined ? discount : currentInvoice.discount;
+      // Use provided values or fall back to current values (default to 0 if null)
+      const finalTaxRate = taxRate !== undefined ? taxRate : Number(currentInvoice.taxRate || 0);
+      const finalDiscount = discount !== undefined ? discount : Number(currentInvoice.discount || 0);
 
       // If line items are provided, recalculate totals
       let updates: any = { ...invoiceData };
@@ -195,7 +195,7 @@ export const invoiceRouter = router({
         };
       } else if (taxRate !== undefined || discount !== undefined) {
         // Recalculate with existing line items if tax/discount changed
-        const subtotal = currentInvoice.subtotal;
+        const subtotal = Number(currentInvoice.subtotal);
         const taxAmount = subtotal * (finalTaxRate / 100);
         const total = subtotal + taxAmount - finalDiscount;
 

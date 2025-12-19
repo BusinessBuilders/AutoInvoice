@@ -24,6 +24,10 @@ export default function ReceiptUploadPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedReceipt | null>(null);
   const [error, setError] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'debit_card' | 'cash' | 'check' | 'other'>('credit_card');
+  const [editedCategory, setEditedCategory] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
+  const [receiptId, setReceiptId] = useState<string | null>(null);
 
   const handleFileSelect = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -63,6 +67,8 @@ export default function ReceiptUploadPage() {
   };
 
   const uploadReceipt = trpc.receipt.upload.useMutation();
+  const updateReceipt = trpc.receipt.update.useMutation();
+  const utils = trpc.useUtils();
 
   const processReceipt = async () => {
     if (!imageFile) return;
@@ -88,9 +94,14 @@ export default function ReceiptUploadPage() {
       const result = await uploadReceipt.mutateAsync({
         imageBase64,
         filename: imageFile.name,
+        paymentMethod,
+        notes: notes || undefined,
       });
 
-      setExtractedData(result.extractedData as ExtractedReceipt);
+      const data = result.extractedData as ExtractedReceipt;
+      setExtractedData(data);
+      setEditedCategory(data.category || '');
+      setReceiptId(result.receipt.id); // Store the receipt ID
     } catch (err: any) {
       setError(err.message || 'Failed to process receipt');
     } finally {
@@ -105,10 +116,41 @@ export default function ReceiptUploadPage() {
   };
 
   const saveReceipt = async () => {
-    if (!extractedData) return;
-    // TODO: Save receipt to database
-    alert('Receipt saved!');
-    router.push('/receipts');
+    console.log('saveReceipt called!', { extractedData, receiptId });
+
+    if (!extractedData || !receiptId) {
+      const errorMsg = 'No receipt data to save - missing: ' + (!extractedData ? 'extractedData ' : '') + (!receiptId ? 'receiptId' : '');
+      console.error(errorMsg);
+      setError(errorMsg);
+      alert(errorMsg); // Show alert so you know function was called
+      return;
+    }
+
+    try {
+      console.log('Updating receipt with:', { id: receiptId, category: editedCategory, notes });
+
+      // Update receipt with edited category and notes
+      const result = await updateReceipt.mutateAsync({
+        id: receiptId,
+        category: editedCategory || undefined,
+        notes: notes || undefined,
+      });
+
+      console.log('Update successful:', result);
+
+      // Invalidate receipt list cache to force refresh
+      console.log('Invalidating cache...');
+      await utils.receipt.list.invalidate();
+      console.log('Cache invalidated, navigating to /receipts');
+
+      // Navigate to receipts list
+      router.push('/receipts');
+    } catch (err: any) {
+      console.error('Save error:', err);
+      const errorMsg = 'Failed to save changes: ' + (err.message || 'Unknown error');
+      setError(errorMsg);
+      alert(errorMsg); // Show alert so you see the error
+    }
   };
 
   return (
@@ -255,6 +297,72 @@ export default function ReceiptUploadPage() {
                 </p>
               </div>
             </div>
+
+            {/* Payment Method Selector */}
+            <div className="bg-white shadow rounded-lg p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">💳 Payment Method</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setPaymentMethod('credit_card')}
+                  className={`p-4 border-2 rounded-lg transition-colors ${
+                    paymentMethod === 'credit_card'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">💳</div>
+                  <span className="text-sm font-medium">Credit Card</span>
+                </button>
+
+                <button
+                  onClick={() => setPaymentMethod('debit_card')}
+                  className={`p-4 border-2 rounded-lg transition-colors ${
+                    paymentMethod === 'debit_card'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">💰</div>
+                  <span className="text-sm font-medium">Debit Card</span>
+                </button>
+
+                <button
+                  onClick={() => setPaymentMethod('cash')}
+                  className={`p-4 border-2 rounded-lg transition-colors ${
+                    paymentMethod === 'cash'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">💵</div>
+                  <span className="text-sm font-medium">Cash</span>
+                </button>
+
+                <button
+                  onClick={() => setPaymentMethod('check')}
+                  className={`p-4 border-2 rounded-lg transition-colors ${
+                    paymentMethod === 'check'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">🏦</div>
+                  <span className="text-sm font-medium">Check</span>
+                </button>
+
+                <button
+                  onClick={() => setPaymentMethod('other')}
+                  className={`col-span-2 p-4 border-2 rounded-lg transition-colors ${
+                    paymentMethod === 'other'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="text-2xl mb-1">📝</div>
+                  <span className="text-sm font-medium">Other</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Right Column - Extracted Data */}
@@ -292,13 +400,36 @@ export default function ReceiptUploadPage() {
                     </div>
                   </div>
 
-                  {/* Category */}
-                  {extractedData.category && (
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <label className="text-xs font-medium text-gray-600 uppercase">Category</label>
-                      <p className="text-lg font-semibold text-gray-900 mt-1">{extractedData.category}</p>
-                    </div>
-                  )}
+                  {/* Category (Editable) */}
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <label className="text-xs font-medium text-gray-600 uppercase block mb-2">
+                      Category (editable)
+                    </label>
+                    <input
+                      type="text"
+                      value={editedCategory}
+                      onChange={(e) => setEditedCategory(e.target.value)}
+                      placeholder="e.g., Office Supplies, Fuel, Meals"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* Business Purpose / Notes */}
+                  <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <label className="text-xs font-medium text-yellow-800 uppercase block mb-2">
+                      📝 Business Purpose / Notes
+                    </label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="For business meals: Who did you meet with? What was discussed?"
+                      rows={3}
+                      className="w-full px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent resize-none"
+                    />
+                    <p className="text-xs text-yellow-700 mt-2">
+                      💡 Important for tax deductions on business meals & entertainment
+                    </p>
+                  </div>
 
                   {/* Line Items */}
                   {extractedData.items && extractedData.items.length > 0 && (
@@ -321,17 +452,17 @@ export default function ReceiptUploadPage() {
                 {/* Actions */}
                 <div className="mt-6 space-y-3">
                   <button
-                    onClick={createInvoiceFromReceipt}
+                    onClick={saveReceipt}
                     className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700"
                   >
-                    ✓ Create Invoice from Receipt
+                    ✅ Save Expense Tag
                   </button>
 
                   <button
-                    onClick={saveReceipt}
+                    onClick={createInvoiceFromReceipt}
                     className="w-full px-4 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50"
                   >
-                    💾 Save Receipt Only
+                    📄 Create Invoice from Receipt
                   </button>
 
                   <button

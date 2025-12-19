@@ -252,6 +252,14 @@ model Receipt {
   items           Json?     // Array of items
   ocrData         Json?     // Raw OCR result
 
+  // Payment Information
+  paymentMethod   String?   // "credit_card", "debit_card", "cash", "check", "other"
+  cardLast4       String?   // Last 4 digits if card payment
+  cardBrand       String?   // "visa", "mastercard", "amex", etc.
+
+  // Business Purpose / Notes
+  notes           String?   // For business meals: who you met, what was discussed, etc.
+
   // Metadata
   status          String    @default("pending") // "pending", "processed", "review_needed"
   processed       Boolean   @default(false)
@@ -264,6 +272,7 @@ model Receipt {
   @@index([vendor])
   @@index([date])
   @@index([userId])
+  @@index([paymentMethod])
 }
 
 model Check {
