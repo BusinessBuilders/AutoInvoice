@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useEffect, Fragment } from 'react';
 
 export default function Home() {
-  const { logout, isLoading, requireAuth } = useAuth();
+  const { logout, isLoading, requireAuth, isAuthenticated } = useAuth();
   const { data: stats } = trpc.invoice.stats.useQuery();
   const { data: recentInvoicesData } = trpc.invoice.list.useQuery({ limit: 5 });
   const { data: customersData } = trpc.customer.list.useQuery({ limit: 5 });
@@ -39,23 +39,34 @@ export default function Home() {
             </p>
           </div>
           <div className="flex space-x-3">
-            <Link
-              href="/settings"
-              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              ⚙️ Settings
-            </Link>
-            <button
-              onClick={logout}
-              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              Logout
-            </button>
+            {isAuthenticated ? (
+              <>
+                <Link
+                  href="/settings"
+                  className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  ⚙️ Settings
+                </Link>
+                <button
+                  onClick={logout}
+                  className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  🚪 Logout
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                className="px-6 py-3 text-lg font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-lg"
+              >
+                🔑 Sign In
+              </Link>
+            )}
           </div>
         </div>
 
         {/* Quick Actions */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Link
             href="/quick"
             className="relative group bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
@@ -117,6 +128,45 @@ export default function Home() {
               <div className="ml-4">
                 <h3 className="text-lg font-semibold text-white">Invoices</h3>
                 <p className="text-sm text-yellow-100">View all invoices</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/leads/business-cards"
+            className="relative group bg-gradient-to-br from-pink-500 to-rose-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">📇</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Lead Cards</h3>
+                <p className="text-sm text-pink-100">Scan business cards</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/network"
+            className="relative group bg-gradient-to-br from-teal-500 to-cyan-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🌐</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Network</h3>
+                <p className="text-sm text-teal-100">Contact database</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/reports"
+            className="relative group bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">📊</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Reports</h3>
+                <p className="text-sm text-indigo-100">Business analytics</p>
               </div>
             </div>
           </Link>

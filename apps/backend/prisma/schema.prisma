@@ -37,6 +37,7 @@ model User {
   createdTasks    Task[]    @relation("CreatedBy")
   refreshTokens   RefreshToken[]
   passwordResets  PasswordReset[]
+  services        Service[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -131,8 +132,10 @@ model Customer {
 
 model Service {
   id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
-  code            String    @unique
+  code            String    // Removed @unique - code should be unique per user, not globally
   category        String
   description     String?
 
@@ -150,6 +153,8 @@ model Service {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@unique([userId, code])  // Code must be unique per user
+  @@index([userId])
   @@index([code])
   @@index([category])
 }
@@ -444,13 +449,34 @@ model Lead {
   name            String
   phone           String
   email           String?
-  source          String    @default("sms") // "sms", "call", "email", "web", "referral"
+  source          String    @default("sms") // "sms", "call", "email", "web", "referral", "business_card"
 
   // Lead Details
   message         String?   // Initial message/inquiry
   projectType     String?   // "hydroseed", "lawn-mowing", "fertilizer", etc.
   estimatedArea   Int?      // Square footage
   estimatedValue  Decimal?  // Potential $ value
+
+  // Business Card Fields
+  company         String?
+  title           String?     // Job title/position
+  website         String?
+  linkedIn        String?
+  twitter         String?
+  facebook        String?
+  instagram       String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?
+
+  // Business Card Image
+  businessCardImageData  Bytes?    // Raw business card image
+  businessCardImageUrl   String?
+  extractedData          Json?     // Raw OCR data from AI
+  extractionConfidence   Float?    // OCR confidence score
 
   // Status Tracking
   status          LeadStatus @default(NEW)
@@ -486,6 +512,7 @@ model Lead {
   @@index([status])
   @@index([nextFollowUpAt])
   @@index([createdAt])
+  @@index([company])
 }
 
 model Reminder {
@@ -635,6 +662,57 @@ model LeadNote {
 
   @@index([leadId])
   @@index([createdAt])
+}
+
+// Contact model for "Network" contacts (business cards)
+model Contact {
+  id              String    @id @default(cuid())
+  userId          String?
+
+  // Core Contact Info
+  name            String
+  phone           String?
+  email           String?
+  company         String?
+  title           String?
+
+  // Address
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?
+
+  // Online Presence
+  website         String?
+  linkedIn        String?
+  twitter         String?
+  facebook        String?
+  instagram       String?
+
+  // Business Card Image
+  businessCardImageData  Bytes?
+  businessCardImageUrl   String?
+  extractedData          Json?     // Raw OCR extraction
+  extractionConfidence   Float?
+
+  // Organization
+  category        String?   // "client", "vendor", "partner", "colleague", etc.
+  tags            String[]
+  notes           String?
+
+  // Metadata
+  source          String    @default("business_card")
+  lastContactedAt DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([name])
+  @@index([company])
+  @@index([category])
 }
 
 // SMS/Communication Log

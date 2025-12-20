@@ -191,7 +191,7 @@ export default function ChecksPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {/* @ts-expect-error - TypeScript struggles with deeply nested Prisma types from tRPC */}
+                  {/* @ts-ignore - Type instantiation may be excessively deep with Prisma types from tRPC */}
                   {checks.map((check) => (
                     <tr key={check.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">

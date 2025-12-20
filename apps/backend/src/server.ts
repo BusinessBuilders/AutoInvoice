@@ -16,24 +16,7 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: env.NODE_ENV === 'development' ? true : (origin, callback) => {
-    const allowedOrigins = [
-      env.FRONTEND_URL,
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-      'http://localhost:3003',
-      'http://localhost:3004',
-    ];
-
-    const isNgrok = origin?.includes('ngrok-free.app') || origin?.includes('ngrok.io');
-
-    if (!origin || allowedOrigins.includes(origin) || isNgrok) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins in development - TEMPORARY FIX
   credentials: true,
 }));
 

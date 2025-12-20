@@ -15,6 +15,7 @@ const createServiceSchema = z.object({
 export const serviceRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.prisma.service.findMany({
+      where: { userId: ctx.user.id },
       orderBy: { category: 'asc' },
     });
   }),
@@ -23,7 +24,10 @@ export const serviceRouter = router({
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
       return ctx.prisma.service.findUnique({
-        where: { id: input.id },
+        where: {
+          id: input.id,
+          userId: ctx.user.id, // Only return if owned by current user
+        },
       });
     }),
 
@@ -42,6 +46,7 @@ export const serviceRouter = router({
       const service = await ctx.prisma.service.create({
         data: {
           ...input,
+          userId: ctx.user.id, // Set owner
         },
       });
 
@@ -66,7 +71,10 @@ export const serviceRouter = router({
       let embedding: number[] | null = null;
       if (data.name || data.code || data.description || data.category) {
         const existing = await ctx.prisma.service.findUnique({
-          where: { id },
+          where: {
+            id,
+            userId: ctx.user.id, // Only allow updating own services
+          },
         });
 
         if (existing) {
@@ -81,7 +89,10 @@ export const serviceRouter = router({
 
       // Update service data without embedding first
       const service = await ctx.prisma.service.update({
-        where: { id },
+        where: {
+          id,
+          userId: ctx.user.id, // Only update own services
+        },
         data: {
           ...data,
         },
@@ -103,7 +114,10 @@ export const serviceRouter = router({
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.prisma.service.delete({
-        where: { id: input.id },
+        where: {
+          id: input.id,
+          userId: ctx.user.id, // Only delete own services
+        },
       });
     }),
 });

@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -181,5 +181,83 @@ Be careful to:
     });
 
     return result as CheckData;
+  }
+
+  async extractBusinessCard(image: Buffer): Promise<BusinessCardData> {
+    logger.info('Anthropic: Extracting business card data from image');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts contact information from business card images.
+
+Extract all available information from the business card and return ONLY a JSON object (no other text):
+- Full name (first and last)
+- Phone number(s) - format consistently, include country code if visible
+- Email address(es)
+- Company name
+- Job title/position
+- Website URL
+- Social media handles or URLs (LinkedIn, Twitter, Facebook, Instagram)
+- Full address (street, city, state, zip, country)
+
+JSON structure:
+{
+  "name": "string",
+  "phone": "string (optional)",
+  "email": "string (optional)",
+  "company": "string (optional)",
+  "title": "string (optional)",
+  "website": "string (optional)",
+  "linkedIn": "string (optional, full URL or username)",
+  "twitter": "string (optional, handle or URL)",
+  "facebook": "string (optional, URL)",
+  "instagram": "string (optional, handle or URL)",
+  "addressLine1": "string (optional)",
+  "addressLine2": "string (optional)",
+  "city": "string (optional)",
+  "state": "string (optional)",
+  "zipCode": "string (optional)",
+  "country": "string (optional)",
+  "confidence": number (0-1, based on image quality and data completeness)
+}
+
+Important notes:
+- Extract exactly what you see on the card
+- For social media, extract the username or full URL if visible
+- If multiple phone numbers or emails exist, choose the primary/first one
+- Set confidence based on image clarity and how much information was successfully extracted`;
+
+    const message = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1024,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: base64Image,
+              },
+            },
+            {
+              type: 'text',
+              text: systemPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    const content = message.content[0];
+    const result = JSON.parse(content.type === 'text' ? content.text : '{}');
+    logger.info('Anthropic: Business card extracted successfully', {
+      name: result.name,
+      confidence: result.confidence
+    });
+
+    return result as BusinessCardData;
   }
 }

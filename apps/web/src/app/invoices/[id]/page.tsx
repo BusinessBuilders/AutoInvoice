@@ -27,9 +27,20 @@ export default function InvoiceDetailPage() {
   const [editedNotes, setEditedNotes] = useState('');
   const [editedServiceDate, setEditedServiceDate] = useState('');
   const [editedDueDate, setEditedDueDate] = useState('');
+  const [editedServiceAddress, setEditedServiceAddress] = useState('');
+  const [editedCustomerName, setEditedCustomerName] = useState('');
+  const [editedCustomerEmail, setEditedCustomerEmail] = useState('');
+  const [editedCustomerPhone, setEditedCustomerPhone] = useState('');
+  const [editedCustomerCompany, setEditedCustomerCompany] = useState('');
+  const [editedCustomerAddressLine1, setEditedCustomerAddressLine1] = useState('');
+  const [editedCustomerAddressLine2, setEditedCustomerAddressLine2] = useState('');
+  const [editedCustomerCity, setEditedCustomerCity] = useState('');
+  const [editedCustomerState, setEditedCustomerState] = useState('');
+  const [editedCustomerZipCode, setEditedCustomerZipCode] = useState('');
 
   const { data: invoice, isLoading, refetch } = trpc.invoice.get.useQuery({ id: invoiceId });
   const updateInvoiceMutation = trpc.invoice.update.useMutation();
+  const updateCustomerMutation = trpc.customer.update.useMutation();
   const deleteInvoiceMutation = trpc.invoice.delete.useMutation();
   const downloadPdfMutation = trpc.invoice.downloadPdf.useQuery(
     { id: invoiceId },
@@ -53,6 +64,20 @@ export default function InvoiceDetailPage() {
       setEditedNotes(invoice.notes || '');
       setEditedServiceDate(new Date(invoice.serviceDate).toISOString().split('T')[0]);
       setEditedDueDate(new Date(invoice.dueDate).toISOString().split('T')[0]);
+      setEditedServiceAddress(invoice.serviceAddress || '');
+
+      // Initialize customer fields
+      if (invoice.customer) {
+        setEditedCustomerName(invoice.customer.name || '');
+        setEditedCustomerEmail(invoice.customer.email || '');
+        setEditedCustomerPhone(invoice.customer.phone || '');
+        setEditedCustomerCompany(invoice.customer.company || '');
+        setEditedCustomerAddressLine1(invoice.customer.addressLine1 || '');
+        setEditedCustomerAddressLine2(invoice.customer.addressLine2 || '');
+        setEditedCustomerCity(invoice.customer.city || '');
+        setEditedCustomerState(invoice.customer.state || '');
+        setEditedCustomerZipCode(invoice.customer.zipCode || '');
+      }
     }
   }, [invoice, isEditMode]);
 
@@ -102,12 +127,19 @@ export default function InvoiceDetailPage() {
 
   const handleLineItemChange = (index: number, field: keyof EditableLineItem, value: any) => {
     const updated = [...editedLineItems];
-    updated[index] = { ...updated[index], [field]: value };
+
+    // Convert numeric fields from strings to numbers
+    let parsedValue = value;
+    if (field === 'quantity' || field === 'rate' || field === 'amount') {
+      parsedValue = parseFloat(value) || 0;
+    }
+
+    updated[index] = { ...updated[index], [field]: parsedValue };
 
     // Auto-calculate amount when quantity or rate changes
     if (field === 'quantity' || field === 'rate') {
-      const quantity = field === 'quantity' ? parseFloat(value) || 0 : updated[index].quantity;
-      const rate = field === 'rate' ? parseFloat(value) || 0 : updated[index].rate;
+      const quantity = field === 'quantity' ? parsedValue : updated[index].quantity;
+      const rate = field === 'rate' ? parsedValue : updated[index].rate;
       updated[index].amount = quantity * rate;
     }
 
@@ -137,19 +169,37 @@ export default function InvoiceDetailPage() {
 
   const handleSaveInvoice = async () => {
     try {
+      // Update customer information if changed
+      if (invoice?.customer) {
+        await updateCustomerMutation.mutateAsync({
+          id: invoice.customer.id,
+          name: editedCustomerName,
+          email: editedCustomerEmail || undefined,
+          phone: editedCustomerPhone || undefined,
+          company: editedCustomerCompany || undefined,
+          addressLine1: editedCustomerAddressLine1 || undefined,
+          addressLine2: editedCustomerAddressLine2 || undefined,
+          city: editedCustomerCity || undefined,
+          state: editedCustomerState || undefined,
+          zipCode: editedCustomerZipCode || undefined,
+        });
+      }
+
+      // Update invoice
       await updateInvoiceMutation.mutateAsync({
         id: invoiceId,
         lineItems: editedLineItems,
         notes: editedNotes,
         serviceDate: new Date(editedServiceDate),
         dueDate: new Date(editedDueDate),
+        serviceAddress: editedServiceAddress || undefined,
       });
 
       await refetch();
       setIsEditMode(false);
-      alert('Invoice updated successfully!');
+      alert('Invoice and customer information updated successfully!');
     } catch (error: any) {
-      alert(`Failed to update invoice: ${error.message}`);
+      alert(`Failed to update: ${error.message}`);
     }
   };
 
@@ -295,27 +345,128 @@ export default function InvoiceDetailPage() {
           <div className="px-6 py-5 border-b border-gray-200">
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <div>
-                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide">Bill To</h3>
-                {invoice.customer && (
-                  <div className="mt-2">
-                    <Link
-                      href={`/customers/${invoice.customer.id}`}
-                      className="text-lg font-semibold text-blue-600 hover:text-blue-800"
-                    >
-                      {invoice.customer.name}
-                    </Link>
-                    {invoice.customer.company && (
-                      <p className="text-sm text-gray-500">{invoice.customer.company}</p>
-                    )}
-                    {invoice.customer.email && (
-                      <p className="text-sm text-gray-600">{invoice.customer.email}</p>
-                    )}
-                    {invoice.customer.addressLine1 && (
-                      <p className="text-sm text-gray-600 mt-1">
-                        {invoice.customer.addressLine1}
-                        {invoice.customer.city && <><br />{invoice.customer.city}, {invoice.customer.state} {invoice.customer.zipCode}</>}
-                      </p>
-                    )}
+                <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Bill To</h3>
+                {!isEditMode ? (
+                  invoice.customer && (
+                    <div className="mt-2">
+                      <Link
+                        href={`/customers/${invoice.customer.id}`}
+                        className="text-lg font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        {invoice.customer.name}
+                      </Link>
+                      {invoice.customer.company && (
+                        <p className="text-sm text-gray-500">{invoice.customer.company}</p>
+                      )}
+                      {invoice.customer.email && (
+                        <p className="text-sm text-gray-600">{invoice.customer.email}</p>
+                      )}
+                      {invoice.customer.phone && (
+                        <p className="text-sm text-gray-600">{invoice.customer.phone}</p>
+                      )}
+                      {invoice.customer.addressLine1 && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          {invoice.customer.addressLine1}
+                          {invoice.customer.addressLine2 && <><br />{invoice.customer.addressLine2}</>}
+                          {invoice.customer.city && <><br />{invoice.customer.city}, {invoice.customer.state} {invoice.customer.zipCode}</>}
+                        </p>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
+                      <input
+                        type="text"
+                        value={editedCustomerName}
+                        onChange={(e) => setEditedCustomerName(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Customer name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Company</label>
+                      <input
+                        type="text"
+                        value={editedCustomerCompany}
+                        onChange={(e) => setEditedCustomerCompany(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Company name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Email</label>
+                      <input
+                        type="email"
+                        value={editedCustomerEmail}
+                        onChange={(e) => setEditedCustomerEmail(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="email@example.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Phone</label>
+                      <input
+                        type="tel"
+                        value={editedCustomerPhone}
+                        onChange={(e) => setEditedCustomerPhone(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="(555) 123-4567"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 1</label>
+                      <input
+                        type="text"
+                        value={editedCustomerAddressLine1}
+                        onChange={(e) => setEditedCustomerAddressLine1(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Street address"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Address Line 2</label>
+                      <input
+                        type="text"
+                        value={editedCustomerAddressLine2}
+                        onChange={(e) => setEditedCustomerAddressLine2(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Apt, suite, etc."
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">City</label>
+                        <input
+                          type="text"
+                          value={editedCustomerCity}
+                          onChange={(e) => setEditedCustomerCity(e.target.value)}
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                          placeholder="City"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">State</label>
+                        <input
+                          type="text"
+                          value={editedCustomerState}
+                          onChange={(e) => setEditedCustomerState(e.target.value)}
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                          placeholder="CA"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Zip Code</label>
+                      <input
+                        type="text"
+                        value={editedCustomerZipCode}
+                        onChange={(e) => setEditedCustomerZipCode(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="12345"
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -360,6 +511,22 @@ export default function InvoiceDetailPage() {
                         value={editedDueDate}
                         onChange={(e) => setEditedDueDate(e.target.value)}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2 px-3"
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500">Service Address</dt>
+                    {!isEditMode ? (
+                      <dd className="text-sm text-gray-900">
+                        {invoice.serviceAddress || 'N/A'}
+                      </dd>
+                    ) : (
+                      <textarea
+                        value={editedServiceAddress}
+                        onChange={(e) => setEditedServiceAddress(e.target.value)}
+                        rows={2}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Enter service location address..."
                       />
                     )}
                   </div>

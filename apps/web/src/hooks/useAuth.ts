@@ -18,7 +18,7 @@ export function useAuth() {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     setIsAuthenticated(false);
-    router.push('/login');
+    window.location.href = '/login'; // Force full page reload
   };
 
   const requireAuth = () => {

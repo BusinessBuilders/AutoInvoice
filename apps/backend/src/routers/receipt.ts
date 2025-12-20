@@ -79,6 +79,16 @@ export const receiptRouter = router({
         limit: z.number().min(1).max(100).default(50),
         offset: z.number().min(0).default(0),
         status: z.enum(['all', 'processed', 'review_needed', 'pending']).default('all'),
+        // New filters
+        startDate: z.coerce.date().optional(),
+        endDate: z.coerce.date().optional(),
+        category: z.string().optional(),
+        paymentMethod: z.enum(['credit_card', 'debit_card', 'cash', 'check', 'other', 'all']).optional(),
+        minAmount: z.number().optional(),
+        maxAmount: z.number().optional(),
+        vendor: z.string().optional(),
+        minConfidence: z.number().min(0).max(1).optional(),
+        hasInvoice: z.boolean().optional(),
       })
     )
     .query(async ({ input, ctx }) => {
@@ -88,6 +98,51 @@ export const receiptRouter = router({
 
       if (input.status !== 'all') {
         where.status = input.status;
+      }
+
+      // Date range filter
+      if (input.startDate || input.endDate) {
+        where.date = {
+          ...(input.startDate && { gte: input.startDate }),
+          ...(input.endDate && { lte: input.endDate }),
+        };
+      }
+
+      // Category filter
+      if (input.category) {
+        where.category = { contains: input.category, mode: 'insensitive' };
+      }
+
+      // Payment method filter
+      if (input.paymentMethod && input.paymentMethod !== 'all') {
+        where.paymentMethod = input.paymentMethod;
+      }
+
+      // Amount range filter
+      if (input.minAmount !== undefined || input.maxAmount !== undefined) {
+        where.amount = {
+          ...(input.minAmount !== undefined && { gte: input.minAmount }),
+          ...(input.maxAmount !== undefined && { lte: input.maxAmount }),
+        };
+      }
+
+      // Vendor search filter
+      if (input.vendor) {
+        where.vendor = { contains: input.vendor, mode: 'insensitive' };
+      }
+
+      // Confidence filter
+      if (input.minConfidence !== undefined) {
+        where.confidence = { gte: input.minConfidence };
+      }
+
+      // Invoice link filter
+      if (input.hasInvoice !== undefined) {
+        if (input.hasInvoice) {
+          where.invoiceId = { not: null };
+        } else {
+          where.invoiceId = null;
+        }
       }
 
       const receipts = await prisma.receipt.findMany({
@@ -350,4 +405,20 @@ export const receiptRouter = router({
       totalAmount: totalAmount._sum.amount || 0,
     };
   }),
+
+  getCategoryList: protectedProcedure
+    .query(async ({ ctx }) => {
+      const receipts = await prisma.receipt.findMany({
+        where: { userId: ctx.user.id },
+        select: { category: true },
+        distinct: ['category'],
+      });
+
+      const categories = receipts
+        .map((r) => r.category)
+        .filter((c): c is string => c !== null && c !== undefined && c.trim() !== '')
+        .sort();
+
+      return categories;
+    }),
 });

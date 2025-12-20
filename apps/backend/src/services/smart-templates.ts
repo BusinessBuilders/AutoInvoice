@@ -15,11 +15,12 @@ export interface QuickInvoiceInput {
 }
 
 export interface QuickInvoiceLineItem {
-  service: {
+  service?: {  // Optional - orphan line items don't have a service
     id: string;
     name: string;
     code: string;
   };
+  description?: string; // For orphan line items without service
   quantity: number;
   unit: string;
   rate: number;
@@ -70,8 +71,8 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
   }
 
   for (const serviceInfo of aiParsed.services) {
-    // Find matching service in database
-    let service = await findService(serviceInfo.description);
+    // Find matching service in database (only user's own services)
+    let service = await findService(serviceInfo.description, input.userId);
 
     const desc = serviceInfo.description;
 
@@ -79,53 +80,66 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
     const unitMatch = text.match(/(sqft|sq\s*ft|square\s*feet?|feet|ft|hours?|hrs?|acres?|units?|tanks?)/i);
     const priceUnit = unitMatch ? unitMatch[1].toLowerCase().replace(/\s+/g, '') : 'unit';
 
-    // Try to extract price from ORIGINAL TEXT (AI doesn't extract pricing)
-    let detectedPrice = serviceInfo.rate || 0;
-    // Match numbers like: 10, 0.10, .10, 5.50
+    // Extract price from ORIGINAL TEXT - prioritize explicit $ signs over AI extraction
+    let detectedPrice = 0;
     const numberPattern = '(?:\\d+(?:\\.\\d+)?|\\.\\d+)';
 
-    // Check for $ sign followed by cents (e.g., "$0.10 cents per" means $0.10, not 0.10 cents)
-    const dollarCentsMatch = text.match(new RegExp(`\\$\\s*(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
-    if (dollarCentsMatch) {
-      detectedPrice = parseFloat(dollarCentsMatch[1]); // Already in dollars, don't divide
-    } else {
-      // Check for cents without $ (e.g., "10 cents per" → $0.10)
-      const centsMatch = text.match(new RegExp(`(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
-      if (centsMatch) {
-        detectedPrice = parseFloat(centsMatch[1]) / 100; // Convert cents to dollars
+    // PRIORITY 1: Explicit dollar amounts (e.g., "$750", "$12.50")
+    // Look for $ followed by number - this is the most explicit price indicator
+    const dollarAmountMatch = text.match(new RegExp(`\\$\\s*(${numberPattern})`, 'i'));
+    if (dollarAmountMatch) {
+      const extractedPrice = parseFloat(dollarAmountMatch[1]);
+      // Use it if it's reasonable and not just the quantity
+      if (extractedPrice > 0.01 && extractedPrice !== serviceInfo.quantity) {
+        detectedPrice = extractedPrice;
+      }
+    }
+
+    // PRIORITY 2: If no $ found, check for "cents per" patterns
+    if (detectedPrice === 0) {
+      // Check for $ sign followed by cents (e.g., "$0.10 cents per")
+      const dollarCentsMatch = text.match(new RegExp(`\\$\\s*(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
+      if (dollarCentsMatch) {
+        detectedPrice = parseFloat(dollarCentsMatch[1]);
       } else {
-        // Check for dollar amounts (e.g., "$5 per" or "5 per")
-        const dollarMatch = text.match(new RegExp(`\\$?\\s*(${numberPattern})\\s*(?:per|\/|each)`, 'i'));
-        if (dollarMatch) {
-          detectedPrice = parseFloat(dollarMatch[1]);
+        // Check for cents without $ (e.g., "10 cents per" → $0.10)
+        const centsMatch = text.match(new RegExp(`(${numberPattern})\\s*(?:cent|cents|¢)\\s*(?:per|\/|each)`, 'i'));
+        if (centsMatch) {
+          detectedPrice = parseFloat(centsMatch[1]) / 100;
+        } else {
+          // Check for "X per" patterns (e.g., "5 per hour")
+          const perMatch = text.match(new RegExp(`(${numberPattern})\\s*(?:per|\/|each)`, 'i'));
+          if (perMatch) {
+            detectedPrice = parseFloat(perMatch[1]);
+          }
         }
       }
     }
 
+    // PRIORITY 3: Fall back to AI's extracted rate if no explicit price found
+    if (detectedPrice === 0) {
+      detectedPrice = serviceInfo.rate || 0;
+    }
+
     if (!service) {
-      // Auto-create the new service
-      // Clean service name (remove quantity and unit prefixes)
-      const serviceName = desc
-        .replace(/^\d+\s*(sqft|sq\s*ft|square\s*feet?|feet|ft|hours?|hrs?|acres?|units?|tanks?)\s+(of\s+)?/i, '')
-        .trim();
+      // Don't auto-create service - create orphan line item instead
+      const quantity = serviceInfo.quantity;
+      const rate = detectedPrice;
+      const amount = quantity * Number(rate);
 
-      // Generate code
-      const serviceCode = (serviceName || desc)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .substring(0, 20);
-
-      service = await quickAddService({
-        name: serviceName || desc,
-        code: serviceCode || 'new-service',
-        category: 'General',
-        basePrice: detectedPrice,
-        priceUnit: priceUnit,
+      lineItems.push({
+        // No service reference - this is an orphan line item
+        description: desc,
+        quantity,
+        unit: priceUnit,
+        rate: Number(rate),
+        amount,
       });
 
-      warnings.push(`✨ New service "${service.name}" auto-created with code "${service.code}" (${detectedPrice > 0 ? `$${detectedPrice}/${priceUnit}` : 'no price set'})`);
-      logger.info('Auto-created service', { name: service.name, code: service.code, basePrice: service.basePrice, priceUnit: service.priceUnit });
+      warnings.push(`📝 Service "${desc}" not in catalog - added as one-time item (${detectedPrice > 0 ? `$${detectedPrice}/${priceUnit}` : 'no price set'})`);
+      logger.info('Created orphan line item (no service)', { description: desc, rate: detectedPrice, quantity: serviceInfo.quantity });
+
+      continue; // Skip the rest of this loop iteration
     } else if (detectedPrice > 0 && Number(service.basePrice) === 0) {
       // Update existing service with detected price if it currently has no price
       await prisma.service.update({
@@ -230,8 +244,10 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
       source: 'quick_entry',
       lineItems: {
         create: parsed.lineItems.map((item, index) => ({
-          serviceId: item.service.id,
-          description: `${item.service.name} - ${item.quantity} ${item.unit}`,
+          serviceId: item.service?.id || null,  // Orphan line items have no serviceId
+          description: item.service
+            ? `${item.service.name} - ${item.quantity} ${item.unit}`  // Service-based description
+            : item.description || 'Service',  // Orphan description
           quantity: item.quantity,
           unit: item.unit,
           rate: item.rate,
@@ -307,17 +323,18 @@ async function findCustomer(nameQuery: string): Promise<any> {
 /**
  * Find service by description (AI vector search + fallback)
  */
-async function findService(descQuery: string): Promise<any> {
+async function findService(descQuery: string, userId?: string): Promise<any> {
   // Try vector similarity search first (AI-powered semantic matching)
   const queryEmbedding = await generateEmbedding(descQuery);
 
-  if (queryEmbedding) {
+  if (queryEmbedding && userId) {
     const services = await prisma.$queryRaw<any[]>`
       SELECT
         id, name, code, category, description, "basePrice", "priceUnit",
         1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
       FROM "Service"
       WHERE embedding IS NOT NULL
+        AND "userId" = ${userId}
       ORDER BY similarity DESC
       LIMIT 3
     `;

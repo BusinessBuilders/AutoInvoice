@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 export default function QuickInvoicePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -61,8 +63,10 @@ export default function QuickInvoicePage() {
       serviceDate: new Date(parsed.date),
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       lineItems: parsed.lineItems.map((item: any, index: number) => ({
-        serviceId: item.service.id,
-        description: `${item.service.name} - ${item.quantity} ${item.unit}`,
+        serviceId: item.service?.id || null,
+        description: item.service
+          ? `${item.service.name} - ${item.quantity} ${item.unit}`
+          : item.description,
         quantity: item.quantity,
         unit: item.unit,
         rate: item.rate,
@@ -217,8 +221,12 @@ export default function QuickInvoicePage() {
                   <div key={index} className="p-4 bg-purple-50 rounded-lg border-l-4 border-purple-600">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-semibold text-gray-900">{item.service.name}</p>
-                        <p className="text-sm text-gray-600">{item.service.code}</p>
+                        <p className="font-semibold text-gray-900">
+                          {item.service?.name || item.description}
+                        </p>
+                        {item.service?.code && (
+                          <p className="text-sm text-gray-600">{item.service.code}</p>
+                        )}
                       </div>
                       <div className="text-right">
                         <p className="font-bold text-gray-900">${item.amount.toFixed(2)}</p>

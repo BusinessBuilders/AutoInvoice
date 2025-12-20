@@ -1,5 +1,5 @@
 import { Ollama } from 'ollama';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -123,5 +123,58 @@ Extract:
     });
 
     return result as CheckData;
+  }
+
+  async extractBusinessCard(image: Buffer): Promise<BusinessCardData> {
+    logger.info('Ollama: Extracting business card data from image (using vision model)');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `Extract business card contact information from this image and return ONLY a JSON object:
+{
+  "name": "string",
+  "phone": "string (optional)",
+  "email": "string (optional)",
+  "company": "string (optional)",
+  "title": "string (optional)",
+  "website": "string (optional)",
+  "linkedIn": "string (optional)",
+  "twitter": "string (optional)",
+  "facebook": "string (optional)",
+  "instagram": "string (optional)",
+  "addressLine1": "string (optional)",
+  "addressLine2": "string (optional)",
+  "city": "string (optional)",
+  "state": "string (optional)",
+  "zipCode": "string (optional)",
+  "country": "string (optional)",
+  "confidence": number (0-1)
+}
+
+Extract all contact information from the business card. Look for:
+- Full name
+- Phone number (format consistently)
+- Email address
+- Company name
+- Job title/position
+- Website URL
+- Social media handles
+- Complete address if present`;
+
+    const response = await this.client.generate({
+      model: 'llava', // Ollama vision model
+      prompt: systemPrompt,
+      images: [base64Image],
+      format: 'json',
+    });
+
+    const result = JSON.parse(response.response);
+    logger.info('Ollama: Business card extracted successfully', {
+      name: result.name,
+      company: result.company,
+      confidence: result.confidence
+    });
+
+    return result as BusinessCardData;
   }
 }

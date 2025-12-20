@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 export default function InvoicesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();

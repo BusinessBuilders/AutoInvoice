@@ -44,6 +44,29 @@ export const CheckDataSchema = z.object({
 
 export type CheckData = z.infer<typeof CheckDataSchema>;
 
+// Business card data structure
+export const BusinessCardDataSchema = z.object({
+  name: z.string(),
+  phone: z.string().optional(),
+  email: z.string().optional(),
+  company: z.string().optional(),
+  title: z.string().optional(),
+  website: z.string().optional(),
+  linkedIn: z.string().optional(),
+  twitter: z.string().optional(),
+  facebook: z.string().optional(),
+  instagram: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  country: z.string().optional(),
+  confidence: z.number().min(0).max(1),
+});
+
+export type BusinessCardData = z.infer<typeof BusinessCardDataSchema>;
+
 // AI Provider interface
 export interface AIProvider {
   name: string;
@@ -52,6 +75,7 @@ export interface AIProvider {
   generateSpeech(text: string): Promise<Buffer>;
   extractReceipt(image: Buffer): Promise<ReceiptData>;
   extractCheck(image: Buffer): Promise<CheckData>;
+  extractBusinessCard(image: Buffer): Promise<BusinessCardData>;
 }
 
 // AI Provider config

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -13,6 +13,26 @@ export class OpenAIProvider implements AIProvider {
       apiKey: config?.apiKey || env.OPENAI_API_KEY,
     });
     this.model = config?.model || env.OPENAI_MODEL;
+  }
+
+  private stripMarkdownCodeBlocks(content: string): string {
+    // Strip markdown code blocks if present (```json ... ``` or ``` ... ```)
+    // Handle multiple formats:
+    // - ```json\n{...}\n```
+    // - ```\n{...}\n```
+    // - {... direct JSON ...}
+    let cleaned = content.trim();
+
+    // Remove opening code block with optional language specifier
+    cleaned = cleaned.replace(/^```(?:json|typescript|javascript)?\s*/im, '');
+
+    // Remove closing code block
+    cleaned = cleaned.replace(/\s*```\s*$/m, '');
+
+    // Remove any remaining backticks
+    cleaned = cleaned.replace(/^`+|`+$/g, '');
+
+    return cleaned.trim();
   }
 
   async parseInvoice(text: string): Promise<InvoiceData> {
@@ -106,11 +126,13 @@ Return JSON structure:
   ],
 
   PRICING EXTRACTION RULES:
-  - If pricing is mentioned, extract it and convert to dollars per unit
+  - Extract ANY dollar amount mentioned in the text (with or without "per", "each", etc.)
+  - Look for $ sign followed by a number - that's the price
   - "10 cents per sqft" → rate: 0.10
   - ".10 cents per sqft" or "$0.10 cents per sqft" → rate: 0.10
   - "$5 per hour" → rate: 5.00
-  - "50 cents each" → rate: 0.50
+  - "$750" or "$1200.50" → rate: 750.00 or 1200.50 (extract any dollar amount)
+  - If multiple dollar amounts, use the one that makes sense as unit price
   - If no pricing mentioned → rate: 0
   "notes": "string (optional - include relevant context like snow storm details)",
   "confidence": number (0-1)
@@ -215,13 +237,14 @@ Return a JSON object with this structure:
           ],
         },
       ],
+      response_format: { type: 'json_object' },
       max_tokens: 1000,
     });
 
     let content = completion.choices[0].message.content || '{}';
 
     // Strip markdown code blocks if present
-    content = content.replace(/^```json\s*/i, '').replace(/\s*```$/,'');
+    content = this.stripMarkdownCodeBlocks(content);
 
     const result = JSON.parse(content);
     logger.info('OpenAI: Receipt extracted successfully', { confidence: result.confidence });
@@ -274,13 +297,14 @@ Be careful to:
           ],
         },
       ],
+      response_format: { type: 'json_object' },
       max_tokens: 1000,
     });
 
     let content = completion.choices[0].message.content || '{}';
 
     // Strip markdown code blocks if present
-    content = content.replace(/^```json\s*/i, '').replace(/\s*```$/,'');
+    content = this.stripMarkdownCodeBlocks(content);
 
     const result = JSON.parse(content);
     logger.info('OpenAI: Check extracted successfully', {
@@ -290,5 +314,83 @@ Be careful to:
     });
 
     return result as CheckData;
+  }
+
+  async extractBusinessCard(image: Buffer): Promise<BusinessCardData> {
+    logger.info('OpenAI: Extracting business card data from image');
+
+    const base64Image = image.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts contact information from business card images.
+
+Extract all available information from the business card:
+- Full name (first and last)
+- Phone number(s) - format consistently, include country code if visible
+- Email address(es)
+- Company name
+- Job title/position
+- Website URL
+- Social media handles or URLs (LinkedIn, Twitter, Facebook, Instagram)
+- Full address (street, city, state, zip, country)
+
+Return a JSON object with this structure:
+{
+  "name": "string",
+  "phone": "string (optional)",
+  "email": "string (optional)",
+  "company": "string (optional)",
+  "title": "string (optional)",
+  "website": "string (optional)",
+  "linkedIn": "string (optional, full URL or username)",
+  "twitter": "string (optional, handle or URL)",
+  "facebook": "string (optional, URL)",
+  "instagram": "string (optional, handle or URL)",
+  "addressLine1": "string (optional)",
+  "addressLine2": "string (optional)",
+  "city": "string (optional)",
+  "state": "string (optional)",
+  "zipCode": "string (optional)",
+  "country": "string (optional)",
+  "confidence": number (0-1, based on image quality and data completeness)
+}
+
+Important notes:
+- Extract exactly what you see on the card
+- For social media, extract the username or full URL if visible
+- If multiple phone numbers or emails exist, choose the primary/first one
+- Set confidence based on image clarity and how much information was successfully extracted`;
+
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 1000,
+    });
+
+    let content = completion.choices[0].message.content || '{}';
+
+    // Strip markdown code blocks if present
+    content = this.stripMarkdownCodeBlocks(content);
+
+    const result = JSON.parse(content);
+    logger.info('OpenAI: Business card extracted successfully', {
+      name: result.name,
+      confidence: result.confidence
+    });
+
+    return result as BusinessCardData;
   }
 }

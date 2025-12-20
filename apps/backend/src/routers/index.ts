@@ -11,6 +11,9 @@ import { quoteRouter } from './quote';
 import { teamRouter } from './team';
 import { brandingRouter } from './branding';
 import { gdprRouter } from './gdpr';
+import { leadBusinessCardRouter } from './leadBusinessCard';
+import { contactRouter } from './contact';
+import { reportingRouter } from './reporting';
 
 export const appRouter = router({
   auth: authRouter,
@@ -25,6 +28,9 @@ export const appRouter = router({
   team: teamRouter,
   branding: brandingRouter,
   gdpr: gdprRouter,
+  leadBusinessCard: leadBusinessCardRouter,
+  contact: contactRouter,
+  reporting: reportingRouter,
 });
 
 export type AppRouter = typeof appRouter;

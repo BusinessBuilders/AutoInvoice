@@ -15,7 +15,7 @@ export const gdprRouter = router({
     const userId = ctx.user.id;
 
     // Collect all user data
-    const [user, leads, customers, invoices, tasks, quotes, receipts, services] = await Promise.all([
+    const [user, leads, tasks, quotes, receipts] = await Promise.all([
       ctx.prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -30,16 +30,7 @@ export const gdprRouter = router({
         },
       }),
       ctx.prisma.lead.findMany({
-        where: { userId },
-        include: { customer: true }
-      }),
-      ctx.prisma.customer.findMany({
-        where: { userId },
-        include: { invoices: true }
-      }),
-      ctx.prisma.invoice.findMany({
-        where: { customerId: { in: await ctx.prisma.customer.findMany({ where: { userId }, select: { id: true } }).then(c => c.map(x => x.id)) } },
-        include: { lineItems: true, customer: true }
+        where: { userId }
       }),
       ctx.prisma.task.findMany({
         where: {
@@ -69,7 +60,6 @@ export const gdprRouter = router({
           // Exclude imageData as it could be very large
         }
       }),
-      ctx.prisma.service.findMany({ where: { userId } }),
     ]);
 
     logAuditEvent(userId, 'EXPORT_DATA', 'user', userId);
@@ -78,12 +68,9 @@ export const gdprRouter = router({
       exportDate: new Date().toISOString(),
       user,
       leads,
-      customers,
-      invoices,
       tasks,
       quotes,
       receipts,
-      services,
     };
   }),
 
@@ -92,9 +79,6 @@ export const gdprRouter = router({
     .input(
       z.object({
         data: z.object({
-          customers: z.array(z.any()).optional(),
-          invoices: z.array(z.any()).optional(),
-          services: z.array(z.any()).optional(),
           receipts: z.array(z.any()).optional(),
           leads: z.array(z.any()).optional(),
           quotes: z.array(z.any()).optional(),
@@ -111,73 +95,9 @@ export const gdprRouter = router({
           await ctx.prisma.$transaction([
             // Delete in reverse dependency order
             ctx.prisma.receipt.deleteMany({ where: { userId } }),
-            ctx.prisma.invoice.deleteMany({
-              where: {
-                customer: { userId }
-              }
-            }),
             ctx.prisma.quote.deleteMany({ where: { userId } }),
             ctx.prisma.lead.deleteMany({ where: { userId } }),
-            ctx.prisma.service.deleteMany({ where: { userId } }),
-            ctx.prisma.customer.deleteMany({ where: { userId } }),
           ]);
-        }
-
-        // Create ID mapping for relationships
-        const customerIdMap = new Map<string, string>();
-        const serviceIdMap = new Map<string, string>();
-
-        // Import services first (no dependencies)
-        if (input.data.services && input.data.services.length > 0) {
-          for (const service of input.data.services) {
-            const oldId = service.id;
-            const { id, userId: _userId, ...serviceData } = service;
-            const newService = await ctx.prisma.service.create({
-              data: {
-                ...serviceData,
-                userId,
-              },
-            });
-            serviceIdMap.set(oldId, newService.id);
-          }
-        }
-
-        // Import customers
-        if (input.data.customers && input.data.customers.length > 0) {
-          for (const customer of input.data.customers) {
-            const oldId = customer.id;
-            const { id, userId: _userId, invoices, ...customerData } = customer;
-            const newCustomer = await ctx.prisma.customer.create({
-              data: {
-                ...customerData,
-                userId,
-              },
-            });
-            customerIdMap.set(oldId, newCustomer.id);
-          }
-        }
-
-        // Import invoices with line items
-        if (input.data.invoices && input.data.invoices.length > 0) {
-          for (const invoice of input.data.invoices) {
-            const { id, customerId, lineItems, customer, ...invoiceData } = invoice;
-            const newCustomerId = customerIdMap.get(customerId);
-
-            if (newCustomerId) {
-              await ctx.prisma.invoice.create({
-                data: {
-                  ...invoiceData,
-                  customerId: newCustomerId,
-                  lineItems: {
-                    create: lineItems?.map((item: any) => {
-                      const { id, invoiceId, ...itemData } = item;
-                      return itemData;
-                    }) || [],
-                  },
-                },
-              });
-            }
-          }
         }
 
         // Import receipts
@@ -197,13 +117,12 @@ export const gdprRouter = router({
         if (input.data.leads && input.data.leads.length > 0) {
           for (const lead of input.data.leads) {
             const { id, customerId, customer, ...leadData } = lead;
-            const newCustomerId = customerId ? customerIdMap.get(customerId) : undefined;
 
             await ctx.prisma.lead.create({
               data: {
                 ...leadData,
                 userId,
-                customerId: newCustomerId || null,
+                customerId: customerId || null,
               },
             });
           }
@@ -213,14 +132,13 @@ export const gdprRouter = router({
         if (input.data.quotes && input.data.quotes.length > 0) {
           for (const quote of input.data.quotes) {
             const { id, customerId, lineItems, customer, ...quoteData } = quote;
-            const newCustomerId = customerIdMap.get(customerId);
 
-            if (newCustomerId) {
+            if (customerId) {
               await ctx.prisma.quote.create({
                 data: {
                   ...quoteData,
                   userId,
-                  customerId: newCustomerId,
+                  customerId,
                   lineItems: {
                     create: lineItems?.map((item: any) => {
                       const { id, quoteId, ...itemData } = item;
@@ -239,9 +157,6 @@ export const gdprRouter = router({
           success: true,
           message: 'Data imported successfully',
           stats: {
-            customers: input.data.customers?.length || 0,
-            invoices: input.data.invoices?.length || 0,
-            services: input.data.services?.length || 0,
             receipts: input.data.receipts?.length || 0,
             leads: input.data.leads?.length || 0,
             quotes: input.data.quotes?.length || 0,
@@ -302,6 +217,9 @@ export const gdprRouter = router({
 
         // Delete password resets
         ctx.prisma.passwordReset.deleteMany({ where: { userId } }),
+
+        // Delete receipts
+        ctx.prisma.receipt.deleteMany({ where: { userId } }),
 
         // Delete tasks
         ctx.prisma.task.deleteMany({

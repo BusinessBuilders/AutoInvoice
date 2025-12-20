@@ -9,6 +9,9 @@ export default function ServicesPage() {
   const { isLoading: authLoading, requireAuth } = useAuth();
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedService, setSelectedService] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '',
     code: '',
@@ -41,6 +44,30 @@ export default function ServicesPage() {
     },
   });
 
+  const updateService = trpc.service.update.useMutation({
+    onSuccess: () => {
+      utils.service.list.invalidate();
+      setShowEditModal(false);
+      setSelectedService(null);
+      setFormData({
+        name: '',
+        code: '',
+        category: '',
+        basePrice: '',
+        priceUnit: 'unit',
+        description: '',
+      });
+    },
+  });
+
+  const deleteService = trpc.service.delete.useMutation({
+    onSuccess: () => {
+      utils.service.list.invalidate();
+      setShowDeleteModal(false);
+      setSelectedService(null);
+    },
+  });
+
   const filteredServices = services?.filter((service) =>
     service.name.toLowerCase().includes(search.toLowerCase()) ||
     service.code.toLowerCase().includes(search.toLowerCase()) ||
@@ -53,6 +80,39 @@ export default function ServicesPage() {
       ...formData,
       basePrice: formData.basePrice ? parseFloat(formData.basePrice) : undefined,
     });
+  };
+
+  const handleEditClick = (service: any) => {
+    setSelectedService(service);
+    setFormData({
+      name: service.name,
+      code: service.code,
+      category: service.category,
+      basePrice: service.basePrice ? service.basePrice.toString() : '',
+      priceUnit: service.priceUnit || 'unit',
+      description: service.description || '',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedService) return;
+    updateService.mutate({
+      id: selectedService.id,
+      ...formData,
+      basePrice: formData.basePrice ? parseFloat(formData.basePrice) : undefined,
+    });
+  };
+
+  const handleDeleteClick = (service: any) => {
+    setSelectedService(service);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = () => {
+    if (!selectedService) return;
+    deleteService.mutate({ id: selectedService.id });
   };
 
   // Group services by category
@@ -133,17 +193,39 @@ export default function ServicesPage() {
                             <p className="mt-1 text-sm text-gray-500">{service.description}</p>
                           )}
                         </div>
-                        <div className="ml-6 text-right">
-                          {service.basePrice ? (
-                            <>
-                              <p className="text-2xl font-bold text-green-600">
-                                ${parseFloat(service.basePrice).toFixed(2)}
-                              </p>
-                              <p className="text-sm text-gray-500">per {service.priceUnit}</p>
-                            </>
-                          ) : (
-                            <p className="text-sm text-gray-500 italic">No base price</p>
-                          )}
+                        <div className="ml-6 flex items-center space-x-4">
+                          <div className="text-right">
+                            {service.basePrice ? (
+                              <>
+                                <p className="text-2xl font-bold text-green-600">
+                                  ${parseFloat(service.basePrice).toFixed(2)}
+                                </p>
+                                <p className="text-sm text-gray-500">per {service.priceUnit}</p>
+                              </>
+                            ) : (
+                              <p className="text-sm text-gray-500 italic">No base price</p>
+                            )}
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => handleEditClick(service)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                              title="Edit service"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(service)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded"
+                              title="Delete service"
+                            >
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -298,7 +380,159 @@ export default function ServicesPage() {
             )}
           </div>
         </div>
-        )}
+      )}
+
+      {/* Edit Service Modal */}
+      {showEditModal && selectedService && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Service</h3>
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Service Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Service Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Category <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Base Price</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.basePrice}
+                    onChange={(e) => setFormData({ ...formData, basePrice: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Unit</label>
+                  <select
+                    value={formData.priceUnit}
+                    onChange={(e) => setFormData({ ...formData, priceUnit: e.target.value })}
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                  >
+                    <option value="sqft">sqft</option>
+                    <option value="hour">hour</option>
+                    <option value="unit">unit</option>
+                    <option value="each">each</option>
+                    <option value="day">day</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <textarea
+                  rows={2}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedService(null);
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateService.isPending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {updateService.isPending ? 'Updating...' : 'Update Service'}
+                </button>
+              </div>
+            </form>
+
+            {updateService.error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
+                <p className="text-sm text-red-600">{updateService.error.message}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && selectedService && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete Service</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Are you sure you want to delete <span className="font-semibold">{selectedService.name}</span>?
+              This action cannot be undone.
+            </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setSelectedService(null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleteService.isPending}
+                className="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteService.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+
+            {deleteService.error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
+                <p className="text-sm text-red-600">{deleteService.error.message}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       </div>
   );
 }
