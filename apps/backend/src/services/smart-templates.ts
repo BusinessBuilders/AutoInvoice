@@ -504,6 +504,7 @@ export async function quickAddService(data: {
   category: string;
   basePrice?: number;
   priceUnit?: string;
+  userId: string;
 }): Promise<any> {
   return prisma.service.create({
     data: {
@@ -512,6 +513,7 @@ export async function quickAddService(data: {
       category: data.category,
       basePrice: data.basePrice,
       priceUnit: data.priceUnit || 'unit',
+      userId: data.userId,
     },
   });
 }

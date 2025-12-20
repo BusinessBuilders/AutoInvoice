@@ -34,7 +34,8 @@ function getApiUrl() {
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
 
-  const trpcClient = useMemo(() => {
+  // Create tRPC client - DO NOT use useMemo to ensure fresh token reads
+  const [trpcClient] = useState(() => {
     const apiUrl = getApiUrl();
     const fullUrl = `${apiUrl}/trpc`;
     console.log('🔗 tRPC Client connecting to:', fullUrl);
@@ -44,7 +45,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         httpBatchLink({
           url: fullUrl,
           headers() {
-            const token = localStorage.getItem('accessToken');
+            // Always read fresh token from localStorage on each request
+            const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
             return {
               authorization: token ? `Bearer ${token}` : '',
               'ngrok-skip-browser-warning': 'true',
@@ -53,7 +55,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         }),
       ],
     });
-  }, []);
+  });
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>

@@ -317,7 +317,7 @@ export default function Home() {
             <div className="px-6 py-4">
               {customersData?.customers && customersData.customers.length > 0 ? (
                 <div className="space-y-3">
-                  {customersData.customers.map((customer) => (
+                  {customersData.customers.map((customer: any) => (
                     <Link
                       key={customer.id}
                       href={`/customers/${customer.id}`}

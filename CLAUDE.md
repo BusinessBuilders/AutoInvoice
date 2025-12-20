@@ -291,11 +291,69 @@ When adding tests:
 
 ## Deployment Notes
 
+### Production Architecture (VPS + WireGuard)
+
+The production setup uses a VPS as a gateway with WireGuard tunnel to a local server (bypasses CGNAT):
+
+```
+Internet → VPS (149.28.121.45) → WireGuard Tunnel → Local Server (10.0.0.2)
+                                                    ├── Frontend :3000
+                                                    └── Backend :4000
+```
+
+**VPS Role**: Public IP, SSL termination, nginx reverse proxy
+**Local Server Role**: Runs Next.js frontend + Node.js backend
+**WireGuard**: Creates tunnel so VPS can reach local server despite CGNAT
+
+**Production Domain**: `accounting.business-builder.online`
+- Frontend: `https://accounting.business-builder.online/` → proxied to `10.0.0.2:3000`
+- API: `https://accounting.business-builder.online/api/*` → proxied to `10.0.0.2:4000/*`
+
+### VPS Nginx Configuration
+
+Located at `/etc/nginx/sites-available/accounting.business-builder.online` on VPS:
+
+```nginx
+location /api/ {
+    rewrite ^/api/(.*) /$1 break;
+    proxy_pass http://10.0.0.2:4000;
+    # ... headers ...
+
+    # CRITICAL: Extended timeouts for AI vision processing
+    proxy_connect_timeout 180s;
+    proxy_send_timeout 180s;
+    proxy_read_timeout 180s;
+    client_max_body_size 20M;
+}
+```
+
+**Important**: AI vision endpoints (receipt scanning, check scanning, business cards) require 180s+ timeout because GPT-4 Vision processing can take 60-120 seconds.
+
+### Local Development
 - Docker Compose for local/staging (see `docker-compose.yml`)
 - Kubernetes manifests in `k8s/` for production
 - CI/CD via GitHub Actions (`.github/workflows/`)
 - Database migrations run via `npm run migrate:deploy` in production
 - Environment variables injected via secrets/ConfigMaps
+
+### Starting Production Services
+
+On local server:
+```bash
+# Build for production
+npm run build
+
+# Start backend (must use index.js, not server.js)
+NODE_ENV=production node apps/backend/dist/index.js &
+
+# Start frontend
+cd apps/web && NODE_ENV=production npm run start &
+```
+
+### SSH Access
+- VPS: `ssh mlb-vps` (149.28.121.45)
+- Check WireGuard: `ssh mlb-vps "wg show"`
+- Reload nginx: `ssh mlb-vps "sudo nginx -t && sudo systemctl reload nginx"`
 
 ## Common Gotchas
 
@@ -304,3 +362,5 @@ When adding tests:
 3. **AI Costs**: All providers logged in AIInteraction table - monitor usage
 4. **Queue Workers**: Must be running separately or jobs pile up in Redis
 5. **JWT Secret**: Must be same across all backend instances for distributed deployments
+6. **Nginx Timeout for AI Vision**: Receipt/check/card scanning fails with "invalid JSON" error if nginx proxy_read_timeout is < 120s. AI vision processing takes 60-120s.
+7. **Backend Entry Point**: Use `dist/index.js` not `dist/server.js` - server.js only exports the app, index.js calls listen()

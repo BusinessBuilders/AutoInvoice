@@ -446,14 +446,26 @@ program
   .argument('<category>', 'Category (e.g., Landscaping)')
   .option('-p, --price <price>', 'Base price per unit')
   .option('-u, --unit <unit>', 'Price unit (e.g., sqft, hour)', 'unit')
+  .option('--user-id <userId>', 'User ID (defaults to first user)')
   .action(async (name: string, code: string, category: string, options) => {
     try {
+      // Get userId from option or fallback to first user
+      let userId = options.userId;
+      if (!userId) {
+        const firstUser = await prisma.user.findFirst();
+        if (!firstUser) {
+          throw new Error('No users found. Please create a user first or specify --user-id');
+        }
+        userId = firstUser.id;
+      }
+
       const service = await smartTemplates.quickAddService({
         name,
         code: code.toUpperCase(),
         category,
         basePrice: options.price ? parseFloat(options.price) : undefined,
         priceUnit: options.unit,
+        userId,
       });
 
       console.log('\n✅ Service added!\n');

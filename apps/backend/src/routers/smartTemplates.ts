@@ -134,8 +134,11 @@ export const smartTemplatesRouter = router({
         priceUnit: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      const service = await smartTemplates.quickAddService(input);
+    .mutation(async ({ input, ctx }) => {
+      const service = await smartTemplates.quickAddService({
+        ...input,
+        userId: ctx.userId,
+      });
       return service;
     }),
 
