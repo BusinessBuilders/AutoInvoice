@@ -11,18 +11,24 @@ export const smartTemplatesRouter = router({
     .input(
       z.object({
         text: z.string().min(1),
+        autoCreateCustomer: z.boolean().optional().default(true),
+        autoCreateService: z.boolean().optional().default(false),
       })
     )
     .mutation(async ({ input, ctx }) => {
       logger.info('Parsing quick invoice', {
         userId: ctx.user.id,
-        text: input.text
+        text: input.text,
+        autoCreateCustomer: input.autoCreateCustomer,
+        autoCreateService: input.autoCreateService,
       });
 
       try {
         const result = await smartTemplates.parseQuickInvoice({
           text: input.text,
           userId: ctx.user.id,
+          autoCreateCustomer: input.autoCreateCustomer,
+          autoCreateService: input.autoCreateService,
         });
 
         return result;

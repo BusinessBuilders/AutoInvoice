@@ -12,6 +12,8 @@ import { generateEmbedding } from './embeddings';
 export interface QuickInvoiceInput {
   text: string; // "9999 sq feet of hydroseed for Blair today"
   userId?: string;
+  autoCreateCustomer?: boolean; // If true, auto-create new customers (default: true for backwards compat)
+  autoCreateService?: boolean;  // If true, auto-create new services (default: false)
 }
 
 export interface QuickInvoiceLineItem {
@@ -32,6 +34,7 @@ export interface QuickInvoiceResult {
     id: string;
     name: string;
     email?: string;
+    isNew?: boolean; // True if customer was just created or is temporary
   };
   lineItems: QuickInvoiceLineItem[];
   subtotal: number;
@@ -40,15 +43,17 @@ export interface QuickInvoiceResult {
   serviceLocation?: string;
   confidence: number;
   warnings?: string[];
+  pendingCustomer?: string; // Name of customer that needs to be created (if autoCreate is off)
+  pendingServices?: string[]; // Services that need to be created (if autoCreate is off)
 }
 
 /**
  * Parse quick invoice text and match with database
  */
 export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<QuickInvoiceResult> {
-  const { text } = input;
+  const { text, autoCreateCustomer = true, autoCreateService = false } = input;
 
-  logger.info('Parsing quick invoice', { text });
+  logger.info('Parsing quick invoice', { text, autoCreateCustomer, autoCreateService });
 
   // Use AI to extract structured data
   const aiParsed = await aiRouter.parseInvoice(text);
@@ -56,18 +61,35 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
   // Process all services into line items
   const lineItems: QuickInvoiceLineItem[] = [];
   const warnings: string[] = [];
+  const pendingServices: string[] = [];
+  let pendingCustomer: string | undefined;
+  let customerIsNew = false;
 
   // Find customer (by name or nickname)
   let customer = await findCustomer(aiParsed.customerName);
 
   if (!customer) {
-    // Auto-create the new customer
-    customer = await quickAddCustomer({
-      name: aiParsed.customerName,
-      nickname: [aiParsed.customerName],
-    });
-    warnings.push(`✨ New customer "${customer.name}" auto-created`);
-    logger.info('Auto-created customer', { name: customer.name, id: customer.id });
+    if (autoCreateCustomer) {
+      // Auto-create the new customer
+      customer = await quickAddCustomer({
+        name: aiParsed.customerName,
+        nickname: [aiParsed.customerName],
+      });
+      customerIsNew = true;
+      warnings.push(`✨ New customer "${customer.name}" auto-created`);
+      logger.info('Auto-created customer', { name: customer.name, id: customer.id });
+    } else {
+      // Create a temporary customer object (will need to be created on invoice save)
+      pendingCustomer = aiParsed.customerName;
+      customer = {
+        id: 'pending-' + Date.now(),
+        name: aiParsed.customerName,
+        email: null,
+      };
+      customerIsNew = true;
+      warnings.push(`⚠️ Customer "${aiParsed.customerName}" not found - will be created when you save the invoice`);
+      logger.info('Customer pending creation', { name: aiParsed.customerName });
+    }
   }
 
   for (const serviceInfo of aiParsed.services) {
@@ -201,6 +223,7 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
       id: customer.id,
       name: customer.name,
       email: customer.email || undefined,
+      isNew: customerIsNew,
     },
     lineItems,
     subtotal,
@@ -209,6 +232,8 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
     serviceLocation: aiParsed.serviceLocation,
     confidence: aiParsed.confidence,
     warnings: warnings.length > 0 ? warnings : undefined,
+    pendingCustomer,
+    pendingServices: pendingServices.length > 0 ? pendingServices : undefined,
   };
 }
 

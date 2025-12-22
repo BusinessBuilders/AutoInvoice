@@ -56,6 +56,11 @@ export default function ReceiptsPage() {
           </div>
         )}
 
+        {/* Back Navigation */}
+        <Link href="/" className="text-blue-600 hover:text-blue-700 mb-4 inline-block">
+          ← Back to Dashboard
+        </Link>
+
         {/* Header */}
         <div className="md:flex md:items-center md:justify-between mb-8">
           <div className="flex-1 min-w-0">

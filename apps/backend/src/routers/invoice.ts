@@ -3,7 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { InvoiceStatus } from '@prisma/client';
 
 const lineItemSchema = z.object({
-  serviceId: z.string().optional(),
+  serviceId: z.string().nullish(),
   description: z.string(),
   quantity: z.number().positive(),
   unit: z.string().optional(),

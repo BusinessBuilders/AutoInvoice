@@ -16,6 +16,8 @@ export default function QuickInvoicePage() {
   const [parsed, setParsed] = useState<any>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState('');
+  const [autoCreateCustomer, setAutoCreateCustomer] = useState(true);
+  const [autoCreateService, setAutoCreateService] = useState(false);
 
   const utils = trpc.useContext();
   const { data: customersData } = trpc.customer.list.useQuery({ limit: 100 });
@@ -46,7 +48,11 @@ export default function QuickInvoicePage() {
     setParsed(null);
 
     try {
-      const result = await parseInvoice.mutateAsync({ text: input });
+      const result = await parseInvoice.mutateAsync({
+        text: input,
+        autoCreateCustomer,
+        autoCreateService,
+      });
       setParsed(result);
     } catch (err: any) {
       setError(err.message || 'Failed to parse invoice');
@@ -55,11 +61,29 @@ export default function QuickInvoicePage() {
     }
   };
 
-  const handleCreate = () => {
+  const quickAddCustomer = trpc.smartTemplates.quickAddCustomer.useMutation();
+
+  const handleCreate = async () => {
     if (!parsed) return;
 
+    let customerId = parsed.customer.id;
+
+    // If customer is pending, create it first
+    if (parsed.pendingCustomer) {
+      try {
+        const newCustomer = await quickAddCustomer.mutateAsync({
+          name: parsed.pendingCustomer,
+          nickname: [parsed.pendingCustomer],
+        });
+        customerId = newCustomer.id;
+      } catch (err: any) {
+        setError(`Failed to create customer: ${err.message}`);
+        return;
+      }
+    }
+
     createInvoice.mutate({
-      customerId: parsed.customer.id,
+      customerId,
       serviceDate: new Date(parsed.date),
       dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       lineItems: parsed.lineItems.map((item: any, index: number) => ({
@@ -114,6 +138,38 @@ export default function QuickInvoicePage() {
             />
             <p className="mt-2 text-xs text-gray-500">
               💡 Tip: Press Cmd/Ctrl + Enter to parse
+            </p>
+          </div>
+
+          {/* Auto-Create Options */}
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-sm font-medium text-gray-700 mb-3">Auto-Create Options</p>
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCreateCustomer}
+                  onChange={(e) => setAutoCreateCustomer(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-700">
+                  Auto-create new customers
+                </span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoCreateService}
+                  onChange={(e) => setAutoCreateService(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-700">
+                  Auto-create new services
+                </span>
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              When enabled, unrecognized customers/services will be added to your database automatically.
             </p>
           </div>
 
@@ -185,20 +241,27 @@ export default function QuickInvoicePage() {
 
             <div className="space-y-4">
               {/* Customer */}
-              <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg">
+              <div className={`flex items-center justify-between p-4 rounded-lg ${parsed.customer.isNew ? 'bg-yellow-50 border border-yellow-200' : 'bg-blue-50'}`}>
                 <div>
-                  <p className="text-xs font-medium text-blue-600 uppercase">Customer</p>
+                  <p className={`text-xs font-medium uppercase ${parsed.customer.isNew ? 'text-yellow-600' : 'text-blue-600'}`}>
+                    Customer {parsed.customer.isNew && '(New)'}
+                  </p>
                   <p className="text-lg font-semibold text-gray-900">{parsed.customer.name}</p>
                   {parsed.customer.email && (
                     <p className="text-sm text-gray-500">{parsed.customer.email}</p>
                   )}
+                  {parsed.pendingCustomer && (
+                    <p className="text-xs text-yellow-600 mt-1">Will be created when invoice is saved</p>
+                  )}
                 </div>
-                <Link
-                  href={`/customers/${parsed.customer.id}`}
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
-                  View →
-                </Link>
+                {!parsed.pendingCustomer && (
+                  <Link
+                    href={`/customers/${parsed.customer.id}`}
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    View →
+                  </Link>
+                )}
               </div>
 
               {/* Date */}
