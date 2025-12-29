@@ -14,6 +14,8 @@ import { gdprRouter } from './gdpr';
 import { leadBusinessCardRouter } from './leadBusinessCard';
 import { contactRouter } from './contact';
 import { reportingRouter } from './reporting';
+import { tallyRouter } from './tally';
+import { voiceRouter } from './voice';
 
 export const appRouter = router({
   auth: authRouter,
@@ -31,6 +33,8 @@ export const appRouter = router({
   leadBusinessCard: leadBusinessCardRouter,
   contact: contactRouter,
   reporting: reportingRouter,
+  tally: tallyRouter,
+  voice: voiceRouter,
 });
 
 export type AppRouter = typeof appRouter;

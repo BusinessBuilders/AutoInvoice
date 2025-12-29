@@ -121,6 +121,7 @@ model Customer {
   priceOverrides  PriceOverride[]
   quotes          Quote[]
   leads           Lead[]
+  tallyInvoices   TallyInvoice[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -139,6 +140,9 @@ model Service {
   category        String
   description     String?
 
+  // Customer association (for customer-specific services like "Salt Walks Westview")
+  customerTag     String?   // Customer name/identifier this service is for
+
   // Pricing
   basePrice       Decimal?
   priceUnit       String?   // "sqft", "hour", "unit"
@@ -149,6 +153,7 @@ model Service {
   // Relations
   lineItems       LineItem[]
   priceOverrides  PriceOverride[]
+  tallyItems      TallyItem[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -157,6 +162,7 @@ model Service {
   @@index([userId])
   @@index([code])
   @@index([category])
+  @@index([customerTag])
 }
 
 model Invoice {
@@ -206,6 +212,7 @@ model Invoice {
   check           Check?
   conversations   Conversation[]
   quotes          Quote[]
+  tallyInvoice    TallyInvoice?
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -381,6 +388,7 @@ model Location {
   accessCodes     String?
 
   invoices        Invoice[]
+  tallyInvoices   TallyInvoice[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -434,6 +442,87 @@ enum InvoiceStatus {
   VIEWED
   PAID
   OVERDUE
+  CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TALLY INVOICE SYSTEM - Running Tallies
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model TallyInvoice {
+  id              String      @id @default(cuid())
+
+  // Customer
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id])
+
+  // Location (optional)
+  locationId      String?
+  location        Location?   @relation(fields: [locationId], references: [id])
+  serviceAddress  String?
+
+  // Status
+  status          TallyStatus @default(OPEN)
+
+  // Running totals (updated on each add)
+  subtotal        Decimal     @default(0)
+  itemCount       Int         @default(0)
+
+  // Line items
+  tallyItems      TallyItem[]
+
+  // Conversion tracking
+  convertedToInvoiceId  String?   @unique
+  convertedToInvoice    Invoice?  @relation(fields: [convertedToInvoiceId], references: [id])
+  convertedAt           DateTime?
+
+  // Source tracking
+  source          String?   // "voice", "web", "telegram"
+
+  // User ownership
+  userId          String
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([customerId, status, userId])
+  @@index([userId, status])
+  @@index([customerId])
+}
+
+model TallyItem {
+  id              String       @id @default(cuid())
+  tallyInvoiceId  String
+  tallyInvoice    TallyInvoice @relation(fields: [tallyInvoiceId], references: [id], onDelete: Cascade)
+
+  // Service reference (optional for orphan items)
+  serviceId       String?
+  service         Service?     @relation(fields: [serviceId], references: [id])
+
+  // Item details
+  description     String
+  quantity        Decimal
+  unit            String?
+  rate            Decimal
+  amount          Decimal
+
+  // Service date for this specific item
+  serviceDate     DateTime     @default(now())
+
+  // Source tracking
+  source          String?      // "voice" | "text"
+  rawInput        String?      // Original user input
+
+  order           Int
+
+  createdAt       DateTime     @default(now())
+
+  @@index([tallyInvoiceId])
+}
+
+enum TallyStatus {
+  OPEN
+  FINALIZED
   CANCELLED
 }
 

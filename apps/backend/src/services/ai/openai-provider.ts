@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, PricingData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -67,38 +67,32 @@ CRITICAL RULES - READ CAREFULLY:
    - Ignore weather context (like "3 inch snow storm") - NOT a date
 
 3. SERVICE IDENTIFICATION (MOST IMPORTANT):
-   Extract ONLY billable work/services. Each distinct service gets its own entry.
+   BE LIBERAL - if there's a customer name, extract EVERYTHING ELSE as service(s).
 
-   Service Detection Rules:
-   - Action verbs indicate services: plowed, salted, mowed, raked, hydroseeded, trimmed, etc.
-   - "and" between different actions = separate services
-   - Same action on different targets = separate services (walks vs parking lot)
-   - Ignore non-billable context: weather conditions, conversations, explanations
+   CRITICAL MINDSET: The user has their own service catalog. They know their services.
+   Whatever description they provide IS a service name - trust them completely.
+   Your job is to extract what they said, not judge if it "sounds like" a service.
 
-   Quantity Patterns (pay close attention):
-   - "X times" or "X x" = quantity X for that service
-   - "twice" = 2, "thrice" = 3
-   - "X tanks of" = quantity X
-   - "total of X" = quantity X
-   - Numbers with units (sqft, hours, acres, tanks) = that number
-   - If multiple services mentioned but quantity only for some, default others to 1
+   RULE 1: Customer + anything else = the "anything else" is the service.
+   RULE 2: Preserve the user's terminology. Don't rewrite or interpret.
+   RULE 3: When in doubt, EXTRACT IT as a service (better to extract than miss).
 
-   Complex Examples:
-   Input: "raked and hydroseeded total of 3 tanks of hydroseed"
-   → Service 1: "raking" qty 1
-   → Service 2: "hydroseed" qty 3
+   Valid service examples (ALL of these should be extracted):
+   - "3-6 inches of snow" (snow depth tier)
+   - "hydroseed" (material/service)
+   - "salt walks" (action + target)
+   - "cleanup" (general service)
+   - ANY phrase the user uses to describe work
 
-   Input: "salted the walks 3 times and salted the parking lot 2 times"
-   → Service 1: "salt walks" qty 3
-   → Service 2: "salt parking lot" qty 2
+   Quantity Patterns:
+   - "X times" = qty X, "twice" = 2, "X sqft/tanks/hours" = qty X
+   - No quantity = default to 1
 
-   Input: "plowed this driveway"
-   → Service 1: "plowing driveway" qty 1
-
-   Input: "mowed lawn twice, trimmed hedges and cleaned up"
-   → Service 1: "mowing lawn" qty 2
-   → Service 2: "trimming hedges" qty 1
-   → Service 3: "cleanup" qty 1
+   Examples:
+   "3-6 inches of snow for Hawthorn Hills" → service: "3-6 inches of snow", customer: "Hawthorn Hills"
+   "Three to six inches of snow Hawthorne Hills" → service: "three to six inches of snow", customer: "Hawthorne Hills"
+   "500 sqft hydroseed for Blair" → service: "hydroseed" qty 500, customer: "Blair"
+   "service was salt walks for Smith" → service: "salt walks", customer: "Smith"
 
 4. CONFIDENCE SCORING:
    - 0.9-1.0: Customer clear, services clear, quantities clear
@@ -392,5 +386,81 @@ Important notes:
     });
 
     return result as BusinessCardData;
+  }
+
+  async extractPricing(imageOrPdf: Buffer): Promise<PricingData> {
+    logger.info('OpenAI: Extracting pricing data from document');
+
+    const base64Image = imageOrPdf.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts service pricing and rate information from pricing documents, rate cards, or price lists.
+
+This is for a landscaping/snow removal/property maintenance business. Extract all services and their pricing.
+
+Look for:
+- Service names (e.g., "Snow Plowing", "Lawn Mowing", "Hydroseed Application")
+- Service codes or abbreviations if present
+- Categories (e.g., "Snow Removal", "Landscaping", "Maintenance")
+- Base prices/rates
+- Price units (per sqft, per hour, per application, each, etc.)
+- Any descriptions of what the service includes
+
+Generate a short service code if none is provided (e.g., "HYDROSEED", "SNOW_PLOW", "LAWN_MOW").
+Infer the category from context if not explicitly stated.
+
+Return a JSON object with this structure:
+{
+  "services": [
+    {
+      "name": "string (service name)",
+      "code": "string (short uppercase code, e.g., HYDROSEED)",
+      "category": "string (service category)",
+      "description": "string (optional, brief description)",
+      "basePrice": number (price per unit),
+      "priceUnit": "string (per sqft, per hour, each, etc.)"
+    }
+  ],
+  "confidence": number (0-1, based on document clarity and extraction completeness)
+}
+
+Important:
+- Extract ALL services you can find in the document
+- Convert all prices to numeric values (remove $ signs, commas)
+- Standardize price units (sqft not sq. ft., hour not hr)
+- Generate reasonable codes if not provided
+- Set confidence based on how complete and clear the extraction was`;
+
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: systemPrompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 4000,
+    });
+
+    let content = completion.choices[0].message.content || '{}';
+
+    // Strip markdown code blocks if present
+    content = this.stripMarkdownCodeBlocks(content);
+
+    const result = JSON.parse(content);
+    logger.info('OpenAI: Pricing extracted successfully', {
+      servicesCount: result.services?.length || 0,
+      confidence: result.confidence
+    });
+
+    return result as PricingData;
   }
 }

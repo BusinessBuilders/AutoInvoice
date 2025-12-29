@@ -18,6 +18,7 @@ export default function QuickInvoicePage() {
   const [error, setError] = useState('');
   const [autoCreateCustomer, setAutoCreateCustomer] = useState(true);
   const [autoCreateService, setAutoCreateService] = useState(false);
+  const [jobName, setJobName] = useState('');
 
   const utils = trpc.useContext();
   const { data: customersData } = trpc.customer.list.useQuery({ limit: 100 });
@@ -85,7 +86,8 @@ export default function QuickInvoicePage() {
     createInvoice.mutate({
       customerId,
       serviceDate: new Date(parsed.date),
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      dueDate: new Date(parsed.date), // Due on receipt
+      serviceAddress: jobName || undefined,
       lineItems: parsed.lineItems.map((item: any, index: number) => ({
         serviceId: item.service?.id || null,
         description: item.service
@@ -275,6 +277,21 @@ export default function QuickInvoicePage() {
                     day: 'numeric',
                   })}
                 </p>
+              </div>
+
+              {/* Job Name / Location */}
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <label className="text-xs font-medium text-gray-500 uppercase">
+                  Job Name / Location <span className="text-gray-400 font-normal normal-case">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={jobName}
+                  onChange={(e) => setJobName(e.target.value)}
+                  placeholder="e.g. Downtown Office, Warehouse #3..."
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                />
+                <p className="text-xs text-gray-400 mt-1">Leave blank for residential jobs</p>
               </div>
 
               {/* Line Items */}

@@ -1,5 +1,5 @@
 import { Ollama } from 'ollama';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, PricingData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -176,5 +176,43 @@ Extract all contact information from the business card. Look for:
     });
 
     return result as BusinessCardData;
+  }
+
+  async extractPricing(imageOrPdf: Buffer): Promise<PricingData> {
+    logger.info('Ollama: Extracting pricing data from document (using vision model)');
+
+    const base64Image = imageOrPdf.toString('base64');
+
+    const systemPrompt = `Extract service pricing and rate information from this pricing document and return ONLY a JSON object:
+{
+  "services": [
+    {
+      "name": "string (service name)",
+      "code": "string (short uppercase code)",
+      "category": "string (service category)",
+      "description": "string (optional)",
+      "basePrice": number (price per unit),
+      "priceUnit": "string (per sqft, per hour, etc.)"
+    }
+  ],
+  "confidence": number (0-1)
+}
+
+This is for a landscaping/snow removal business. Extract ALL services and their pricing.`;
+
+    const response = await this.client.generate({
+      model: 'llava', // Ollama vision model
+      prompt: systemPrompt,
+      images: [base64Image],
+      format: 'json',
+    });
+
+    const result = JSON.parse(response.response);
+    logger.info('Ollama: Pricing extracted successfully', {
+      servicesCount: result.services?.length || 0,
+      confidence: result.confidence
+    });
+
+    return result as PricingData;
   }
 }

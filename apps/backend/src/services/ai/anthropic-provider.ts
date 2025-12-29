@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, AIProviderConfig } from './types';
+import { AIProvider, InvoiceData, ReceiptData, CheckData, BusinessCardData, PricingData, AIProviderConfig } from './types';
 import { env } from '../../utils/env';
 import logger from '../../utils/logger';
 
@@ -259,5 +259,65 @@ Important notes:
     });
 
     return result as BusinessCardData;
+  }
+
+  async extractPricing(imageOrPdf: Buffer): Promise<PricingData> {
+    logger.info('Anthropic: Extracting pricing data from document');
+
+    const base64Image = imageOrPdf.toString('base64');
+
+    const systemPrompt = `You are an AI assistant that extracts service pricing and rate information from pricing documents.
+
+This is for a landscaping/snow removal business. Extract all services and their pricing.
+
+Return ONLY a JSON object:
+{
+  "services": [
+    {
+      "name": "string (service name)",
+      "code": "string (short uppercase code, e.g., HYDROSEED)",
+      "category": "string (service category)",
+      "description": "string (optional)",
+      "basePrice": number (price per unit),
+      "priceUnit": "string (per sqft, per hour, each, etc.)"
+    }
+  ],
+  "confidence": number (0-1)
+}
+
+Extract ALL services, generate codes if not provided, standardize price units.`;
+
+    const message = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: base64Image,
+              },
+            },
+            {
+              type: 'text',
+              text: systemPrompt,
+            },
+          ],
+        },
+      ],
+    });
+
+    const content = message.content[0];
+    const result = JSON.parse(content.type === 'text' ? content.text : '{}');
+    logger.info('Anthropic: Pricing extracted successfully', {
+      servicesCount: result.services?.length || 0,
+      confidence: result.confidence
+    });
+
+    return result as PricingData;
   }
 }

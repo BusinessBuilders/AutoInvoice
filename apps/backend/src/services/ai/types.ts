@@ -67,6 +67,21 @@ export const BusinessCardDataSchema = z.object({
 
 export type BusinessCardData = z.infer<typeof BusinessCardDataSchema>;
 
+// Pricing/rate card data structure for importing services from PDFs
+export const PricingDataSchema = z.object({
+  services: z.array(z.object({
+    name: z.string(),
+    code: z.string().optional(),
+    category: z.string().optional(),
+    description: z.string().optional(),
+    basePrice: z.number(),
+    priceUnit: z.string().optional(), // per sqft, per hour, each, etc.
+  })),
+  confidence: z.number().min(0).max(1),
+});
+
+export type PricingData = z.infer<typeof PricingDataSchema>;
+
 // AI Provider interface
 export interface AIProvider {
   name: string;
@@ -76,6 +91,7 @@ export interface AIProvider {
   extractReceipt(image: Buffer): Promise<ReceiptData>;
   extractCheck(image: Buffer): Promise<CheckData>;
   extractBusinessCard(image: Buffer): Promise<BusinessCardData>;
+  extractPricing(imageOrPdf: Buffer): Promise<PricingData>;
 }
 
 // AI Provider config

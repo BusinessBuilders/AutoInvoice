@@ -349,7 +349,42 @@ async function findCustomer(nameQuery: string): Promise<any> {
  * Find service by description (AI vector search + fallback)
  */
 async function findService(descQuery: string, userId?: string): Promise<any> {
-  // Try vector similarity search first (AI-powered semantic matching)
+  const queryLower = descQuery.toLowerCase();
+  const queryUpper = descQuery.toUpperCase().replace(/\s+/g, '_');
+
+  // FIRST: Check for exact code match (highest priority)
+  // This handles cases like "SALT_WALKS_2" or "salt_walks_2"
+  if (userId) {
+    const exactCodeService = await prisma.service.findFirst({
+      where: {
+        userId,
+        code: { equals: queryUpper, mode: 'insensitive' },
+      },
+    });
+    if (exactCodeService) {
+      logger.info('Found exact code match', { code: queryUpper, service: exactCodeService.name });
+      return exactCodeService;
+    }
+
+    // Also check if the query CONTAINS a code (e.g., "Salt Walks Westview SALT_WALKS_2")
+    // Extract potential codes (words that look like SERVICE_CODES)
+    const codePattern = /[A-Z][A-Z0-9_]+[0-9_]?[A-Z0-9]*/g;
+    const potentialCodes = descQuery.match(codePattern) || [];
+    for (const potentialCode of potentialCodes) {
+      const codeService = await prisma.service.findFirst({
+        where: {
+          userId,
+          code: { equals: potentialCode, mode: 'insensitive' },
+        },
+      });
+      if (codeService) {
+        logger.info('Found code in query', { code: potentialCode, service: codeService.name });
+        return codeService;
+      }
+    }
+  }
+
+  // SECOND: Try vector similarity search (AI-powered semantic matching)
   const queryEmbedding = await generateEmbedding(descQuery);
 
   if (queryEmbedding && userId) {
@@ -370,38 +405,19 @@ async function findService(descQuery: string, userId?: string): Promise<any> {
     }
   }
 
-  // Fallback to keyword matching (minimal - let GPT-4o + embeddings do the heavy lifting)
-  const serviceKeywords: Record<string, string[]> = {
-    'hydroseed': ['hydroseed', 'hydroseeding'],
-    'mow': ['mow', 'mowing'],
-    'salt': ['salt', 'salting'],
-    'fertilize': ['fertilize', 'fertilizer'],
-    'trim': ['trim', 'trimming'],
-  };
-
-  const queryLower = descQuery.toLowerCase();
-
-  for (const [code, keywords] of Object.entries(serviceKeywords)) {
-    if (keywords.some((kw) => queryLower.includes(kw))) {
-      const service = await prisma.service.findFirst({
-        where: { code: { contains: code, mode: 'insensitive' } },
-      });
-      if (service) return service;
-    }
-  }
-
-  // Fallback to exact name match
+  // THIRD: Fallback to partial name/code match
   let service = await prisma.service.findFirst({
     where: {
+      userId: userId || undefined,
       name: { contains: descQuery, mode: 'insensitive' },
     },
   });
 
-  // Fallback to code match
   if (!service) {
     service = await prisma.service.findFirst({
       where: {
-        code: { contains: descQuery, mode: 'insensitive' },
+        userId: userId || undefined,
+        code: { contains: descQuery.replace(/\s+/g, '_'), mode: 'insensitive' },
       },
     });
   }
