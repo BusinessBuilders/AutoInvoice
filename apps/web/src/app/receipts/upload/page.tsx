@@ -28,6 +28,16 @@ export default function ReceiptUploadPage() {
   const [editedCategory, setEditedCategory] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [categorySearch, setCategorySearch] = useState<string>('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+
+  // Fetch expense categories
+  const { data: categoriesData } = trpc.expenseCategory.list.useQuery({ active: true });
+  const categories = categoriesData || [];
+
+  // Categorize receipt mutation
+  const categorizeReceipt = trpc.receipt.categorizeReceipt.useMutation();
 
   const handleFileSelect = (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -116,13 +126,13 @@ export default function ReceiptUploadPage() {
   };
 
   const saveReceipt = async () => {
-    console.log('saveReceipt called!', { extractedData, receiptId });
+    console.log('saveReceipt called!', { extractedData, receiptId, selectedCategoryId });
 
     if (!extractedData || !receiptId) {
       const errorMsg = 'No receipt data to save - missing: ' + (!extractedData ? 'extractedData ' : '') + (!receiptId ? 'receiptId' : '');
       console.error(errorMsg);
       setError(errorMsg);
-      alert(errorMsg); // Show alert so you know function was called
+      alert(errorMsg);
       return;
     }
 
@@ -135,6 +145,14 @@ export default function ReceiptUploadPage() {
         category: editedCategory || undefined,
         notes: notes || undefined,
       });
+
+      // If a category is selected, categorize the receipt (creates journal entry)
+      if (selectedCategoryId) {
+        await categorizeReceipt.mutateAsync({
+          receiptId,
+          expenseCategoryId: selectedCategoryId,
+        });
+      }
 
       console.log('Update successful:', result);
 
@@ -149,9 +167,15 @@ export default function ReceiptUploadPage() {
       console.error('Save error:', err);
       const errorMsg = 'Failed to save changes: ' + (err.message || 'Unknown error');
       setError(errorMsg);
-      alert(errorMsg); // Show alert so you see the error
+      alert(errorMsg);
     }
   };
+
+  // Filter categories based on search
+  const filteredCategories = categories.filter((cat: any) =>
+    cat.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
+    (cat.code && cat.code.toLowerCase().includes(categorySearch.toLowerCase()))
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -400,10 +424,85 @@ export default function ReceiptUploadPage() {
                     </div>
                   </div>
 
-                  {/* Category (Editable) */}
+                  {/* Expense Category Selector (NEW) */}
+                  <div className="p-4 bg-indigo-50 rounded-lg border-2 border-indigo-300">
+                    <label className="text-xs font-medium text-indigo-700 uppercase block mb-2">
+                      🏷️ Expense Category (for accounting)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={categorySearch}
+                        onChange={(e) => {
+                          setCategorySearch(e.target.value);
+                          setShowCategoryDropdown(true);
+                        }}
+                        onFocus={() => setShowCategoryDropdown(true)}
+                        placeholder="Search categories... (e.g., Office Supplies, Fuel)"
+                        className="w-full px-3 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      />
+                      
+                      {/* Dropdown */}
+                      {showCategoryDropdown && filteredCategories.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                          {filteredCategories.map((cat: any) => (
+                            <button
+                              key={cat.id}
+                              onClick={() => {
+                                setSelectedCategoryId(cat.id);
+                                setCategorySearch(cat.name);
+                                setShowCategoryDropdown(false);
+                              }}
+                              className={`w-full text-left px-4 py-2 hover:bg-indigo-50 transition-colors ${
+                                selectedCategoryId === cat.id ? 'bg-indigo-100 font-semibold' : ''
+                              }`}
+                            >
+                              <div className="flex justify-between items-center">
+                                <span>{cat.name}</span>
+                                {cat.code && (
+                                  <span className="text-xs text-gray-500 font-mono">{cat.code}</span>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {selectedCategoryId && (
+                      <div className="mt-2 p-2 bg-indigo-100 rounded flex justify-between items-center">
+                        <span className="text-sm text-indigo-900 font-medium">
+                          Selected: {categories.find((c: any) => c.id === selectedCategoryId)?.name}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setSelectedCategoryId('');
+                            setCategorySearch('');
+                          }}
+                          className="text-xs text-indigo-700 hover:text-indigo-900"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-indigo-700 mt-2">
+                      💡 Categorizing creates a journal entry for accounting reports
+                    </p>
+                    
+                    <Link
+                      href="/accounts"
+                      className="text-xs text-indigo-600 hover:text-indigo-800 underline block mt-1"
+                      target="_blank"
+                    >
+                      + Create new category
+                    </Link>
+                  </div>
+
+                  {/* Category (Editable - for simple tagging) */}
                   <div className="p-4 bg-gray-50 rounded-lg">
                     <label className="text-xs font-medium text-gray-600 uppercase block mb-2">
-                      Category (editable)
+                      Category Tag (simple label)
                     </label>
                     <input
                       type="text"
@@ -453,9 +552,10 @@ export default function ReceiptUploadPage() {
                 <div className="mt-6 space-y-3">
                   <button
                     onClick={saveReceipt}
-                    className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700"
+                    disabled={!selectedCategoryId}
+                    className="w-full px-4 py-3 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    ✅ Save Expense Tag
+                    {selectedCategoryId ? '✅ Save & Categorize Expense' : '⚠️ Select Category to Save'}
                   </button>
 
                   <button
@@ -511,7 +611,11 @@ export default function ReceiptUploadPage() {
             </li>
             <li className="flex items-start">
               <span className="font-bold mr-2">4.</span>
-              <span>Create an invoice or save the receipt for later</span>
+              <span>Select an expense category to create journal entry for accounting</span>
+            </li>
+            <li className="flex items-start">
+              <span className="font-bold mr-2">5.</span>
+              <span>Save the receipt or create an invoice</span>
             </li>
           </ul>
 

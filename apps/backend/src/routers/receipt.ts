@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { prisma } from '../utils/db';
 import { aiRouter } from '../services/ai';
 import logger from '../utils/logger';
+import { createExpenseEntry } from '../services/accounting/journal-service';
 
 export const receiptRouter = router({
   /**
@@ -158,6 +159,12 @@ export const receiptRouter = router({
               status: true,
             },
           },
+          expenseCategory: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -184,6 +191,11 @@ export const receiptRouter = router({
             include: {
               customer: true,
               lineItems: true,
+            },
+          },
+          expenseCategory: {
+            include: {
+              account: true,
             },
           },
         },
@@ -420,5 +432,99 @@ export const receiptRouter = router({
         .sort();
 
       return categories;
+    }),
+
+  /**
+   * Categorize receipt and create journal entry
+   * Links receipt to expense category and creates accounting entry
+   */
+  categorizeReceipt: protectedProcedure
+    .input(
+      z.object({
+        receiptId: z.string(),
+        expenseCategoryId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      try {
+        // Get receipt
+        const receipt = await prisma.receipt.findFirst({
+          where: {
+            id: input.receiptId,
+            userId: ctx.user.id,
+          },
+        });
+
+        if (!receipt) {
+          throw new Error('Receipt not found');
+        }
+
+        // Check if already has journal entry
+        if (receipt.journalEntryId) {
+          throw new Error('Receipt already has a journal entry');
+        }
+
+        // Verify expense category exists
+        const expenseCategory = await prisma.expenseCategory.findUnique({
+          where: { id: input.expenseCategoryId },
+          include: { account: true },
+        });
+
+        if (!expenseCategory) {
+          throw new Error('Expense category not found');
+        }
+
+        if (!expenseCategory.account) {
+          throw new Error(`Expense category "${expenseCategory.name}" has no linked account`);
+        }
+
+        logger.info('Categorizing receipt', {
+          receiptId: receipt.id,
+          expenseCategoryId: input.expenseCategoryId,
+          vendor: receipt.vendor,
+          amount: receipt.amount,
+        });
+
+        // Create journal entry
+        const journalEntryResult = await createExpenseEntry(
+          receipt,
+          ctx.user.id,
+          input.expenseCategoryId
+        );
+
+        // Update receipt with category and journal entry
+        const updatedReceipt = await prisma.receipt.update({
+          where: { id: receipt.id },
+          data: {
+            expenseCategoryId: input.expenseCategoryId,
+            journalEntryId: journalEntryResult.id,
+            status: 'processed',
+          },
+          include: {
+            expenseCategory: {
+              include: {
+                account: true,
+              },
+            },
+          },
+        });
+
+        logger.info('Receipt categorized and journal entry created', {
+          receiptId: receipt.id,
+          journalEntryId: journalEntryResult.id,
+          journalEntryNumber: journalEntryResult.entryNumber,
+        });
+
+        return {
+          receipt: updatedReceipt,
+          journalEntry: journalEntryResult,
+        };
+      } catch (error) {
+        logger.error('Failed to categorize receipt', {
+          receiptId: input.receiptId,
+          error,
+        });
+        throw error;
+      }
     }),
 });

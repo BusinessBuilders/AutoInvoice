@@ -4,6 +4,8 @@ import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, Fragment } from 'react';
+import FinancialOverview from '@/components/FinancialOverview';
+import OutstandingBalances from '@/components/OutstandingBalances';
 
 export default function Home() {
   const { logout, isLoading, requireAuth, isAuthenticated } = useAuth();
@@ -76,6 +78,32 @@ export default function Home() {
               <div className="ml-4">
                 <h3 className="text-lg font-semibold text-white">Quick Invoice</h3>
                 <p className="text-sm text-green-100">Natural language entry</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/quick-manual"
+            className="relative group bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">📝</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Manual Invoice</h3>
+                <p className="text-sm text-blue-100">Traditional form entry</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/voice"
+            className="relative group bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🎤</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Voice Invoice</h3>
+                <p className="text-sm text-violet-100">Speak your invoice</p>
               </div>
             </div>
           </Link>
@@ -237,6 +265,16 @@ export default function Home() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Financial Overview Widget */}
+        <div className="mb-8">
+          <FinancialOverview />
+        </div>
+
+        {/* Outstanding Balances Widget */}
+        <div className="mb-8">
+          <OutstandingBalances />
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

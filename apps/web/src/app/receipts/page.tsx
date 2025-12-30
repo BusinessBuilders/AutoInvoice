@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 export default function ReceiptsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showUncategorizedOnly, setShowUncategorizedOnly] = useState(false);
   const [showError, setShowError] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -34,10 +35,12 @@ export default function ReceiptsPage() {
     const matchesSearch = receipt.vendor.toLowerCase().includes(search.toLowerCase()) ||
                           receipt.category?.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || receipt.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesUncategorized = !showUncategorizedOnly || !receipt.expenseCategoryId;
+    return matchesSearch && matchesStatus && matchesUncategorized;
   });
 
   const totalAmount = filteredReceipts.reduce((sum, r) => sum + Number(r.amount), 0);
+  const uncategorizedCount = receipts.filter(r => !r.expenseCategoryId).length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -80,7 +83,7 @@ export default function ReceiptsPage() {
         </div>
 
         {/* Stats */}
-        <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <div className="mb-6 grid grid-cols-1 gap-5 sm:grid-cols-4">
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="p-5">
               <div className="flex items-center">
@@ -134,6 +137,24 @@ export default function ReceiptsPage() {
               </div>
             </div>
           </div>
+
+          <div className="bg-white overflow-hidden shadow rounded-lg">
+            <div className="p-5">
+              <div className="flex items-center">
+                <div className="flex-shrink-0">
+                  <div className="text-3xl">⚠️</div>
+                </div>
+                <div className="ml-5 w-0 flex-1">
+                  <dl>
+                    <dt className="text-sm font-medium text-gray-500 truncate">Uncategorized</dt>
+                    <dd className="text-lg font-semibold text-orange-600">
+                      {uncategorizedCount}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Filters */}
@@ -160,6 +181,17 @@ export default function ReceiptsPage() {
                 {status.charAt(0).toUpperCase() + status.slice(1)}
               </button>
             ))}
+            
+            <button
+              onClick={() => setShowUncategorizedOnly(!showUncategorizedOnly)}
+              className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                showUncategorizedOnly
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+              }`}
+            >
+              Uncategorized
+            </button>
           </div>
         </div>
 
@@ -175,12 +207,12 @@ export default function ReceiptsPage() {
                         <div className="flex items-center">
                           <div className="text-3xl mr-3">🧾</div>
                           <div>
-                            <div className="flex items-center">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-lg font-semibold text-gray-900 truncate">
                                 {receipt.vendor}
                               </p>
                               <span
-                                className={`ml-3 px-2 py-1 text-xs font-medium rounded ${
+                                className={`px-2 py-1 text-xs font-medium rounded ${
                                   receipt.status === 'processed'
                                     ? 'bg-green-100 text-green-800'
                                     : 'bg-yellow-100 text-yellow-800'
@@ -188,6 +220,17 @@ export default function ReceiptsPage() {
                               >
                                 {receipt.status}
                               </span>
+                              
+                              {/* Expense Category Badge (NEW) */}
+                              {(receipt as any).expenseCategory ? (
+                                <span className="px-2 py-1 text-xs font-medium rounded bg-indigo-100 text-indigo-800 border border-indigo-300">
+                                  🏷️ {(receipt as any).expenseCategory.name}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-1 text-xs font-medium rounded bg-orange-100 text-orange-800 border border-orange-300">
+                                  ⚠️ Uncategorized
+                                </span>
+                              )}
                             </div>
 
                             <div className="mt-2 flex items-center text-sm text-gray-500">
@@ -215,6 +258,15 @@ export default function ReceiptsPage() {
                         </div>
 
                         <div className="flex flex-col space-y-2">
+                          {/* Show categorize button if not categorized */}
+                          {!(receipt as any).expenseCategoryId && (
+                            <Link
+                              href={`/receipts/${receipt.id}`}
+                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-indigo-600 hover:bg-indigo-700"
+                            >
+                              🏷️ Categorize
+                            </Link>
+                          )}
                           <Link
                             href={`/invoices/new?receiptId=${receipt.id}`}
                             className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700"

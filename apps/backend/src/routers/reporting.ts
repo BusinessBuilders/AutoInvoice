@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { prisma } from '../utils/db';
 import { Prisma } from '@prisma/client';
+import { generateProfitAndLoss } from '../services/accounting/reports';
 
 export const reportingRouter = router({
   /**
@@ -964,5 +965,22 @@ export const reportingRouter = router({
         .slice(0, input.limit);
 
       return vendorData;
+    }),
+
+  /**
+   * Get Profit & Loss (Income Statement) report
+   *
+   * Shows revenue and expenses from posted journal entries
+   * to calculate net income for a given period.
+   */
+  profitAndLoss: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.coerce.date(),
+        endDate: z.coerce.date(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      return await generateProfitAndLoss(ctx.user.id, input.startDate, input.endDate);
     }),
 });

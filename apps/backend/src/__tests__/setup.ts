@@ -19,10 +19,19 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean database before each test
+  // Accounting tables
+  await prisma.journalLine.deleteMany();
+  await prisma.journalEntry.deleteMany();
+  await prisma.expenseCategory.deleteMany();
+  await prisma.account.deleteMany();
+
+  // Other tables
   await prisma.refreshToken.deleteMany();
   await prisma.passwordReset.deleteMany();
   await prisma.task.deleteMany();
   await prisma.lead.deleteMany();
+  await prisma.receipt.deleteMany();
+  await prisma.check.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.user.deleteMany();

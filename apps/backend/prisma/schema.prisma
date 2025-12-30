@@ -122,6 +122,7 @@ model Customer {
   quotes          Quote[]
   leads           Lead[]
   tallyInvoices   TallyInvoice[]
+  journalLines    JournalLine[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -207,6 +208,10 @@ model Invoice {
   source          String?   // "voice", "telegram", "web", "cli"
   sourceMessageId String?
 
+  // Accounting Integration
+  recognitionJournalEntryId String?  // Journal entry for revenue recognition (when SENT)
+  paymentJournalEntryId     String?  // Journal entry for payment (when PAID)
+
   // Relations
   receipts        Receipt[]
   check           Check?
@@ -263,6 +268,11 @@ model Receipt {
   category        String?
   items           Json?     // Array of items
   ocrData         Json?     // Raw OCR result
+  
+  // Accounting integration
+  expenseCategoryId  String?
+  expenseCategory    ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  journalEntryId     String?
 
   // Payment Information
   paymentMethod   String?   // "credit_card", "debit_card", "cash", "check", "other"
@@ -285,6 +295,7 @@ model Receipt {
   @@index([date])
   @@index([userId])
   @@index([paymentMethod])
+  @@index([expenseCategoryId])
 }
 
 model Check {
@@ -305,6 +316,9 @@ model Check {
   memo            String?
   ocrData         Json?     // Raw OCR result
 
+  // Accounting integration
+  journalEntryId  String?   // Link to journal entry when check is deposited
+
   // Matching & Processing
   status          String    @default("pending") // "pending", "matched", "processed", "review_needed"
   matchedAt       DateTime?
@@ -319,6 +333,7 @@ model Check {
   @@index([date])
   @@index([userId])
   @@index([amount])
+  @@index([journalEntryId])
 }
 
 model Conversation {
@@ -965,4 +980,217 @@ enum TaskStatus {
   WAITING
   COMPLETED
   CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DOUBLE-ENTRY ACCOUNTING SYSTEM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum BalanceType {
+  DEBIT
+  CREDIT
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  VOIDED
+}
+
+enum JournalSourceType {
+  INVOICE
+  RECEIPT
+  CHECK
+  MANUAL
+  ADJUSTMENT
+  OPENING_BALANCE
+  TRANSFER
+}
+
+model Account {
+  id              String      @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Account identification
+  code            String                // Account number (e.g., "1000", "4100")
+  name            String                // Account name (e.g., "Cash", "Accounts Receivable")
+  accountType     AccountType
+  balanceType     BalanceType           // Natural balance side
+
+  // Hierarchy
+  parentId        String?
+  parent          Account?    @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children        Account[]   @relation("AccountHierarchy")
+  level           Int         @default(0)
+
+  // Balance tracking
+  balance         Decimal     @default(0)
+  balanceAsOf     DateTime    @default(now())
+
+  // Configuration
+  active          Boolean     @default(true)
+  systemAccount   Boolean     @default(false)  // System-managed (AR, revenue, etc.)
+  allowManualEntries Boolean  @default(true)
+
+  // Tax configuration
+  taxEnabled      Boolean     @default(false)
+  taxRate         Decimal?
+
+  // Metadata
+  description     String?
+  notes           String?
+  tags            String[]
+
+  // Relations
+  journalLines    JournalLine[]
+  expenseCategories ExpenseCategory[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId])
+  @@index([userId, accountType])
+  @@index([accountType])
+  @@index([parentId])
+  @@index([active])
+  @@index([systemAccount])
+}
+
+model JournalEntry {
+  id              String            @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Entry identification
+  entryNumber     String                     // Sequential journal entry number
+  entryDate       DateTime                   // Transaction date
+
+  // Status
+  status          JournalStatus     @default(DRAFT)
+  postedAt        DateTime?
+  postedBy        String?
+  voidedAt        DateTime?
+  voidedBy        String?
+  voidReason      String?
+
+  // Source tracking
+  sourceType      JournalSourceType
+  sourceId        String?                    // ID of source document (invoice, receipt, etc.)
+  referenceNumber String?                    // External reference (invoice #, check #, etc.)
+
+  // Description
+  description     String
+  notes           String?
+
+  // Lines
+  lines           JournalLine[]
+
+  // Metadata
+  tags            String[]
+  customFields    Json?
+
+  // User tracking
+  createdBy       String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([userId, entryNumber])
+  @@index([userId])
+  @@index([userId, entryDate])
+  @@index([userId, status])
+  @@index([entryDate])
+  @@index([status])
+  @@index([sourceType, sourceId])
+  @@index([createdBy])
+}
+
+model JournalLine {
+  id              String        @id @default(cuid())
+  
+  // Entry reference
+  journalEntryId  String
+  journalEntry    JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  
+  // Account reference
+  accountId       String
+  account         Account       @relation(fields: [accountId], references: [id])
+  
+  // Amount
+  debit           Decimal       @default(0)
+  credit          Decimal       @default(0)
+  
+  // Entity tracking (customer, vendor, etc.)
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  
+  // Line details
+  description     String?
+  lineOrder       Int           @default(0)
+  
+  // Metadata
+  tags            String[]
+  
+  createdAt       DateTime      @default(now())
+  
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([customerId])
+}
+
+model ExpenseCategory {
+  id              String    @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Category identification
+  name            String
+  code            String?
+
+  // Accounting integration
+  accountId       String?
+  account         Account?  @relation(fields: [accountId], references: [id])
+
+  // Hierarchy
+  parentId        String?
+  parent          ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        ExpenseCategory[] @relation("CategoryHierarchy")
+
+  // Configuration
+  active          Boolean   @default(true)
+  requiresReceipt Boolean   @default(true)
+  taxDeductible   Boolean   @default(true)
+
+  // IRS/Tax categorization
+  taxCategory     String?   // IRS Schedule C category
+  description     String?
+
+  // Relations
+  receipts        Receipt[]
+
+  // Metadata
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, name])
+  @@unique([userId, code])
+  @@index([userId])
+  @@index([accountId])
+  @@index([parentId])
+  @@index([active])
 }

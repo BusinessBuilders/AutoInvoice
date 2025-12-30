@@ -16,6 +16,10 @@ import { contactRouter } from './contact';
 import { reportingRouter } from './reporting';
 import { tallyRouter } from './tally';
 import { voiceRouter } from './voice';
+import { accountsRouter } from './accounts';
+import { journalRouter } from './journal';
+import { expenseCategoryRouter } from './expenseCategory';
+import { customerStatementRouter } from './customerStatement';
 
 export const appRouter = router({
   auth: authRouter,
@@ -35,6 +39,10 @@ export const appRouter = router({
   reporting: reportingRouter,
   tally: tallyRouter,
   voice: voiceRouter,
+  accounts: accountsRouter,
+  journal: journalRouter,
+  expenseCategory: expenseCategoryRouter,
+  customerStatement: customerStatementRouter,
 });
 
 export type AppRouter = typeof appRouter;

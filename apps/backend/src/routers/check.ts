@@ -3,6 +3,7 @@ import { router, protectedProcedure } from '../trpc';
 import { prisma } from '../utils/db';
 import { aiRouter } from '../services/ai';
 import logger from '../utils/logger';
+import { createCheckDepositEntry, voidJournalEntry } from '../services/accounting/journal-service';
 
 export const checkRouter = router({
   /**
@@ -78,48 +79,86 @@ export const checkRouter = router({
         // Auto-match if we have exactly one high-confidence match
         let matchedInvoiceId: string | null = null;
         let autoMatched = false;
+        let journalEntryId: string | null = null;
 
+        // Create check record first (needed for journal entry)
+        const checkData_temp = {
+          userId: ctx.user.id,
+          checkNumber: checkData.checkNumber,
+          amount: checkData.amount,
+          date: new Date(checkData.date),
+          payee: checkData.payee,
+          memo: checkData.memo,
+          confidence: checkData.confidence,
+          ocrData: checkData as any,
+          imageUrl: null, // TODO: Store in S3/storage
+          status: 'pending',
+          invoiceId: null,
+          matchedAt: null,
+          processed: false,
+          journalEntryId: null,
+        };
+
+        const check = await prisma.check.create({
+          data: checkData_temp,
+        });
+
+        // Now try auto-matching
         if (matchingInvoices.length === 1 && checkData.confidence > 0.8) {
           matchedInvoiceId = matchingInvoices[0].id;
           autoMatched = true;
 
-          // Mark invoice as PAID
-          await prisma.invoice.update({
-            where: { id: matchedInvoiceId },
-            data: {
-              status: 'PAID',
-              paidDate: new Date(checkData.date),
-            },
-          });
+          try {
+            // Create journal entry for check deposit
+            const journalEntryResult = await createCheckDepositEntry(
+              check,
+              ctx.user.id,
+              matchedInvoiceId
+            );
+            journalEntryId = journalEntryResult.id;
 
-          logger.info('Auto-matched and marked invoice as PAID', {
-            invoiceId: matchedInvoiceId,
-            invoiceNumber: matchingInvoices[0].invoiceNumber,
-          });
+            // Mark invoice as PAID
+            await prisma.invoice.update({
+              where: { id: matchedInvoiceId },
+              data: {
+                status: 'PAID',
+                paidDate: new Date(checkData.date),
+              },
+            });
+
+            // Update check with match and journal entry
+            await prisma.check.update({
+              where: { id: check.id },
+              data: {
+                status: 'matched',
+                invoiceId: matchedInvoiceId,
+                matchedAt: new Date(),
+                processed: true,
+                journalEntryId,
+              },
+            });
+
+            logger.info('Auto-matched, created journal entry, and marked invoice as PAID', {
+              checkId: check.id,
+              invoiceId: matchedInvoiceId,
+              invoiceNumber: matchingInvoices[0].invoiceNumber,
+              journalEntryId,
+            });
+          } catch (error) {
+            logger.error('Failed to create journal entry during auto-match', {
+              checkId: check.id,
+              invoiceId: matchedInvoiceId,
+              error,
+            });
+            // Don't fail the whole operation - just mark check for review
+            await prisma.check.update({
+              where: { id: check.id },
+              data: {
+                status: 'review_needed',
+              },
+            });
+          }
         }
-
-        // Create check record
-        const check = await prisma.check.create({
-          data: {
-            userId: ctx.user.id,
-            checkNumber: checkData.checkNumber,
-            amount: checkData.amount,
-            date: new Date(checkData.date),
-            payee: checkData.payee,
-            memo: checkData.memo,
-            confidence: checkData.confidence,
-            ocrData: checkData as any,
-            imageUrl: null, // TODO: Store in S3/storage
-            status: matchedInvoiceId
-              ? 'matched'
-              : checkData.confidence > 0.7
-              ? 'pending'
-              : 'review_needed',
-            invoiceId: matchedInvoiceId,
-            matchedAt: matchedInvoiceId ? new Date() : null,
-            processed: autoMatched,
-          },
-        });
 
         logger.info('Check record created', {
           checkId: check.id,
@@ -176,32 +215,54 @@ export const checkRouter = router({
         throw new Error('Check already matched to an invoice');
       }
 
-      // Update check
-      const updatedCheck = await prisma.check.update({
-        where: { id: input.checkId },
-        data: {
+      if (check.journalEntryId) {
+        throw new Error('Check already has a journal entry');
+      }
+
+      try {
+        // Create journal entry for check deposit
+        const journalEntryResult = await createCheckDepositEntry(
+          check,
+          ctx.user.id,
+          input.invoiceId
+        );
+
+        // Update check
+        const updatedCheck = await prisma.check.update({
+          where: { id: input.checkId },
+          data: {
+            invoiceId: input.invoiceId,
+            status: 'matched',
+            matchedAt: new Date(),
+            processed: true,
+            journalEntryId: journalEntryResult.id,
+          },
+        });
+
+        // Mark invoice as PAID
+        await prisma.invoice.update({
+          where: { id: input.invoiceId },
+          data: {
+            status: 'PAID',
+            paidDate: check.date,
+          },
+        });
+
+        logger.info('Check manually matched to invoice with journal entry', {
+          checkId: input.checkId,
           invoiceId: input.invoiceId,
-          status: 'matched',
-          matchedAt: new Date(),
-          processed: true,
-        },
-      });
+          journalEntryId: journalEntryResult.id,
+        });
 
-      // Mark invoice as PAID
-      await prisma.invoice.update({
-        where: { id: input.invoiceId },
-        data: {
-          status: 'PAID',
-          paidDate: check.date,
-        },
-      });
-
-      logger.info('Check manually matched to invoice', {
-        checkId: input.checkId,
-        invoiceId: input.invoiceId,
-      });
-
-      return updatedCheck;
+        return updatedCheck;
+      } catch (error) {
+        logger.error('Failed to match check and create journal entry', {
+          checkId: input.checkId,
+          invoiceId: input.invoiceId,
+          error,
+        });
+        throw error;
+      }
     }),
 
   /**
@@ -279,6 +340,84 @@ export const checkRouter = router({
       }
 
       return check;
+    }),
+
+  /**
+   * Unmatch a check from its invoice
+   * Voids the journal entry and reverts invoice status
+   */
+  unmatchCheck: protectedProcedure
+    .input(
+      z.object({
+        checkId: z.string(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const check = await prisma.check.findFirst({
+        where: {
+          id: input.checkId,
+          userId: ctx.user.id,
+        },
+        include: {
+          invoice: true,
+        },
+      });
+
+      if (!check) {
+        throw new Error('Check not found');
+      }
+
+      if (!check.invoiceId) {
+        throw new Error('Check is not matched to an invoice');
+      }
+
+      try {
+        // Void journal entry if it exists
+        if (check.journalEntryId) {
+          await voidJournalEntry(
+            check.journalEntryId,
+            ctx.user.id,
+            'Check unmatched from invoice'
+          );
+        }
+
+        // Revert invoice status
+        if (check.invoice) {
+          await prisma.invoice.update({
+            where: { id: check.invoice.id },
+            data: {
+              status: 'SENT', // Revert to sent status
+              paidDate: null,
+            },
+          });
+        }
+
+        // Update check to unmatched state
+        const updatedCheck = await prisma.check.update({
+          where: { id: input.checkId },
+          data: {
+            invoiceId: null,
+            journalEntryId: null,
+            status: 'pending',
+            matchedAt: null,
+            processed: false,
+          },
+        });
+
+        logger.info('Check unmatched and journal entry voided', {
+          checkId: input.checkId,
+          invoiceId: check.invoiceId,
+          journalEntryId: check.journalEntryId,
+        });
+
+        return updatedCheck;
+      } catch (error) {
+        logger.error('Failed to unmatch check', {
+          checkId: input.checkId,
+          error,
+        });
+        throw error;
+      }
     }),
 
   /**

@@ -4,6 +4,7 @@ import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import JournalEntriesSection from '@/components/JournalEntriesSection';
 
 interface EditableLineItem {
   id?: string;
@@ -39,6 +40,18 @@ export default function InvoiceDetailPage() {
   const [editedCustomerZipCode, setEditedCustomerZipCode] = useState('');
 
   const { data: invoice, isLoading, refetch } = trpc.invoice.get.useQuery({ id: invoiceId });
+  
+  // Fetch journal entries for this invoice
+  const { data: journalEntries, isLoading: isLoadingJournalEntries } = trpc.journal.getBySource.useQuery(
+    {
+      sourceType: 'INVOICE',
+      sourceId: invoiceId,
+    },
+    {
+      enabled: !!invoiceId, // Only fetch when we have an invoice ID
+    }
+  );
+  
   const updateInvoiceMutation = trpc.invoice.update.useMutation();
   const updateCustomerMutation = trpc.customer.update.useMutation();
   const deleteInvoiceMutation = trpc.invoice.delete.useMutation();
@@ -789,6 +802,14 @@ export default function InvoiceDetailPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Journal Entries Section */}
+        <div className="mt-6">
+          <JournalEntriesSection 
+            entries={journalEntries || []} 
+            isLoading={isLoadingJournalEntries}
+          />
         </div>
 
         {/* Delete Confirmation Dialog */}

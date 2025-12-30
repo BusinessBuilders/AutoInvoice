@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc';
 import { InvoiceStatus } from '@prisma/client';
+import {
+  createInvoiceRecognitionEntry,
+  createInvoicePaymentEntry
+} from '../services/accounting/journal-service';
+import logger from '../utils/logger';
 
 const lineItemSchema = z.object({
   serviceId: z.string().nullish(),
@@ -227,6 +232,15 @@ export const invoiceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Get current invoice to check previous status
+      const currentInvoice = await ctx.prisma.invoice.findUnique({
+        where: { id: input.id },
+      });
+
+      if (!currentInvoice) {
+        throw new Error('Invoice not found');
+      }
+
       const updates: any = { status: input.status };
 
       // Set paidDate when marked as PAID
@@ -239,10 +253,85 @@ export const invoiceRouter = router({
         updates.sentAt = new Date();
       }
 
-      return ctx.prisma.invoice.update({
+      // Update invoice
+      const updatedInvoice = await ctx.prisma.invoice.update({
         where: { id: input.id },
         data: updates,
       });
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // ACCOUNTING INTEGRATION
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+      try {
+        // Create revenue recognition entry when invoice is SENT
+        if (
+          input.status === InvoiceStatus.SENT &&
+          currentInvoice.status !== InvoiceStatus.SENT &&
+          !currentInvoice.recognitionJournalEntryId
+        ) {
+          logger.info('Creating revenue recognition journal entry', {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+          });
+
+          const journalEntry = await createInvoiceRecognitionEntry(
+            updatedInvoice,
+            ctx.user?.id
+          );
+
+          // Store journal entry ID on invoice
+          await ctx.prisma.invoice.update({
+            where: { id: input.id },
+            data: { recognitionJournalEntryId: journalEntry.id },
+          });
+
+          logger.info('Revenue recognition journal entry created', {
+            invoiceId: updatedInvoice.id,
+            journalEntryId: journalEntry.id,
+            entryNumber: journalEntry.entryNumber,
+          });
+        }
+
+        // Create payment entry when invoice is PAID
+        if (
+          input.status === InvoiceStatus.PAID &&
+          currentInvoice.status !== InvoiceStatus.PAID &&
+          !currentInvoice.paymentJournalEntryId
+        ) {
+          logger.info('Creating payment journal entry', {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+          });
+
+          const journalEntry = await createInvoicePaymentEntry(
+            updatedInvoice,
+            ctx.user?.id
+          );
+
+          // Store journal entry ID on invoice
+          await ctx.prisma.invoice.update({
+            where: { id: input.id },
+            data: { paymentJournalEntryId: journalEntry.id },
+          });
+
+          logger.info('Payment journal entry created', {
+            invoiceId: updatedInvoice.id,
+            journalEntryId: journalEntry.id,
+            entryNumber: journalEntry.entryNumber,
+          });
+        }
+      } catch (error) {
+        // Log error but don't fail the invoice update
+        // This ensures backward compatibility if accounting isn't set up
+        logger.error('Failed to create journal entry for invoice', {
+          invoiceId: updatedInvoice.id,
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+
+      return updatedInvoice;
     }),
 
   // Delete invoice
