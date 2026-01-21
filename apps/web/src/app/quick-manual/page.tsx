@@ -91,7 +91,7 @@ export default function QuickManualInvoicePage() {
 
   // Queries
   const { data: customersData, isLoading: customersLoading } = trpc.customer.list.useQuery({});
-  const { data: servicesData, isLoading: servicesLoading } = trpc.service.list.useQuery({});
+  const { data: servicesData, isLoading: servicesLoading } = trpc.service.list.useQuery();
 
   // Mutations
   const createInvoiceMutation = trpc.invoice.create.useMutation();

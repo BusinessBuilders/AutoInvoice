@@ -24,7 +24,7 @@ export default function FinancialOverview() {
   // Fetch invoice stats for AR
   const { data: invoiceStats } = trpc.invoice.stats.useQuery();
 
-  const uncategorizedCount = receiptsData?.filter((r) => !r.expenseCategoryId).length || 0;
+  const uncategorizedCount = (receiptsData as any[])?.filter((r) => !r.expenseCategoryId).length || 0;
   const pendingInvoices = invoiceStats?.sent || 0;
 
   if (plLoading) {
@@ -37,10 +37,10 @@ export default function FinancialOverview() {
     );
   }
 
-  const totalRevenue = plData?.totalRevenue || 0;
-  const totalExpenses = plData?.totalExpenses || 0;
-  const netIncome = totalRevenue - totalExpenses;
-  const profitMargin = totalRevenue > 0 ? (netIncome / totalRevenue) * 100 : 0;
+  const totalRevenue = plData?.revenue?.total || 0;
+  const totalExpenses = plData?.expenses?.total || 0;
+  const netIncome = plData?.netIncome || (totalRevenue - totalExpenses);
+  const profitMargin = plData?.profitMargin || (totalRevenue > 0 ? (netIncome / totalRevenue) * 100 : 0);
 
   // Calculate AR from invoice stats
   const accountsReceivable = invoiceStats
@@ -224,15 +224,15 @@ export default function FinancialOverview() {
         </div>
 
         {/* Top Expense Categories Preview */}
-        {plData && plData.expenses && plData.expenses.length > 0 && (
+        {plData && plData.expenses?.accounts && plData.expenses.accounts.length > 0 && (
           <div className="mt-6 pt-6 border-t border-gray-200">
             <h3 className="text-sm font-semibold text-gray-900 mb-3">Top Expense Categories</h3>
             <div className="space-y-2">
-              {plData.expenses.slice(0, 5).map((expense: any, index: number) => (
+              {plData.expenses.accounts.slice(0, 5).map((expense: any, index: number) => (
                 <div key={index} className="flex items-center justify-between">
                   <div className="flex items-center flex-1 min-w-0">
                     <div className="w-32 truncate">
-                      <span className="text-sm text-gray-700">{expense.accountName}</span>
+                      <span className="text-sm text-gray-700">{expense.name}</span>
                     </div>
                     <div className="flex-1 mx-3">
                       <div className="w-full bg-gray-200 rounded-full h-2">

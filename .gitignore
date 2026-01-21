@@ -55,3 +55,16 @@ pnpm-debug.log*
 
 # TypeScript
 *.tsbuildinfo
+
+# Database backups
+*.dump
+backups/
+
+# Generated files
+.playwright-mcp/
+.serena/
+apps/backend/statements/
+claudedocs/
+
+# Test scripts
+apps/backend/scripts/

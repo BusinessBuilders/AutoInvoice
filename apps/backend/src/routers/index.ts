@@ -20,6 +20,13 @@ import { accountsRouter } from './accounts';
 import { journalRouter } from './journal';
 import { expenseCategoryRouter } from './expenseCategory';
 import { customerStatementRouter } from './customerStatement';
+// Accounting module routers
+import { taxAccountsRouter } from './taxAccounts';
+import { categorizationRulesRouter } from './categorizationRules';
+import { bankTransactionsRouter } from './bankTransactions';
+import { taxReportsRouter } from './taxReports';
+import { bankAccountsRouter } from './bankAccounts';
+import { vendorsRouter } from './vendors';
 
 export const appRouter = router({
   auth: authRouter,
@@ -43,6 +50,13 @@ export const appRouter = router({
   journal: journalRouter,
   expenseCategory: expenseCategoryRouter,
   customerStatement: customerStatementRouter,
+  // Accounting module
+  taxAccounts: taxAccountsRouter,
+  categorizationRules: categorizationRulesRouter,
+  bankTransactions: bankTransactionsRouter,
+  taxReports: taxReportsRouter,
+  bankAccounts: bankAccountsRouter,
+  vendors: vendorsRouter,
 });
 
 export type AppRouter = typeof appRouter;

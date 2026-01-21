@@ -5,6 +5,22 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // Get or create a default user for seeding
+  let firstUser = await prisma.user.findFirst();
+  if (!firstUser) {
+    console.log('👤 Creating default user for seed data...');
+    firstUser = await prisma.user.create({
+      data: {
+        email: 'admin@dovanfarms.com',
+        password: '$2b$10$placeholder_hash', // Should be updated with real bcrypt hash
+        name: 'Admin',
+        role: 'OWNER',
+        active: true,
+      },
+    });
+  }
+  const userId = firstUser.id;
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // SEED DEFAULT CHART OF ACCOUNTS
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -34,9 +50,10 @@ async function main() {
 
   for (const account of accountsToSeed) {
     await prisma.account.upsert({
-      where: { code: account.code },
+      where: { userId_code: { userId, code: account.code } },
       update: {},
       create: {
+        userId,
         code: account.code,
         name: account.name,
         accountType: account.accountType,
@@ -55,10 +72,6 @@ async function main() {
   // SEED SERVICES
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   console.log('🛠️  Seeding services...');
-
-  // Get first user ID for service ownership
-  const firstUser = await prisma.user.findFirst();
-  const userId = firstUser?.id || 'system';
 
   const services = await Promise.all([
     prisma.service.upsert({
@@ -150,7 +163,7 @@ async function main() {
 
   // Helper to get account ID by code
   const getAccountId = async (code: string) => {
-    const account = await prisma.account.findUnique({ where: { code } });
+    const account = await prisma.account.findUnique({ where: { userId_code: { userId, code } } });
     if (!account) throw new Error(`Account ${code} not found`);
     return account.id;
   };
@@ -165,6 +178,7 @@ async function main() {
   // Entry 1: Invoice Revenue Recognition (DR AR, CR Service Revenue)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-001',
       entryDate: thirtyDaysAgo,
       status: JournalStatus.POSTED,
@@ -195,6 +209,7 @@ async function main() {
   // Entry 2: Invoice Payment (DR Cash, CR AR)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-002',
       entryDate: twentyDaysAgo,
       status: JournalStatus.POSTED,
@@ -227,6 +242,7 @@ async function main() {
   // Entry 3: Materials Expense (DR Materials Cost, CR Cash)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-003',
       entryDate: fifteenDaysAgo,
       status: JournalStatus.POSTED,
@@ -257,6 +273,7 @@ async function main() {
   // Entry 4: Fuel Expense (DR Fuel, CR Cash)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-004',
       entryDate: tenDaysAgo,
       status: JournalStatus.POSTED,
@@ -287,6 +304,7 @@ async function main() {
   // Entry 5: Service Revenue #2 (DR AR, CR Service Revenue)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-005',
       entryDate: fiveDaysAgo,
       status: JournalStatus.POSTED,
@@ -317,6 +335,7 @@ async function main() {
   // Entry 6: Office Supplies Expense (DR Office Supplies, CR Cash)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-006',
       entryDate: fiveDaysAgo,
       status: JournalStatus.POSTED,
@@ -347,6 +366,7 @@ async function main() {
   // Entry 7: Auto & Truck Expense (DR Auto & Truck, CR Cash)
   await prisma.journalEntry.create({
     data: {
+      userId,
       entryNumber: 'JE-SEED-007',
       entryDate: now,
       status: JournalStatus.POSTED,
@@ -377,12 +397,239 @@ async function main() {
   console.log('✅ Created 7 sample journal entries (revenue & expenses)');
 
   console.log('\n🎉 Database seeded successfully!');
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SEED DONOVAN FARMS TAX ACCOUNTING (2023 S-CORP)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  console.log('🏢 Seeding Donovan Farms accounting...');
+
+  // Create company
+  const dovanFarms = await prisma.company.upsert({
+    where: { id: 'donovan-farms' },
+    update: {},
+    create: {
+      id: 'donovan-farms',
+      userId,
+      name: 'DONOVAN FARMS INC',
+      legalName: 'DONOVAN FARMS INC',
+      taxId: '**-*******', // Redacted
+      taxType: 'S-Corp',
+      fiscalYearStart: '04-01', // April 1st
+      address: 'Massachusetts',
+      state: 'MA',
+      active: true,
+    },
+  });
+
+  // Create tax accounts (Chart of Accounts for tax reporting)
+  const taxAccounts = [
+    // ASSETS
+    { code: '1010', name: 'Cash - Operating Account (x0055)', type: 'ASSET', treatment: '100%', schedule: 'Balance Sheet' },
+    { code: '1020', name: 'Cash - Payroll Account (x0056)', type: 'ASSET', treatment: '100%', schedule: 'Balance Sheet' },
+
+    // LIABILITIES
+    { code: '2010', name: 'Credit Card Payable - AMEX', type: 'LIABILITY', treatment: '100%', schedule: 'Balance Sheet' },
+    { code: '2020', name: 'Credit Card Payable - Chase', type: 'LIABILITY', treatment: '100%', schedule: 'Balance Sheet' },
+
+    // EQUITY
+    { code: '3010', name: "Owner's Capital", type: 'EQUITY', treatment: '100%', schedule: 'Balance Sheet' },
+    { code: '3020', name: 'Retained Earnings', type: 'EQUITY', treatment: '100%', schedule: 'Balance Sheet' },
+    { code: '3030', name: 'Owner Distributions', type: 'EQUITY', treatment: 'NON_DEDUCTIBLE', schedule: 'K-1' },
+
+    // INCOME
+    { code: '4010', name: 'Gross Receipts', type: 'INCOME', treatment: '100%', schedule: '1120-S Line 1a' },
+
+    // EXPENSES - COGS
+    { code: '5010', name: 'Landscaping Supplies', type: 'EXPENSE_COGS', treatment: '100%', schedule: '1120-S Line 2' },
+
+    // EXPENSES - OPERATING
+    { code: '6010', name: 'Payroll - Harpers', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 7' },
+    { code: '6020', name: 'Meals - Business', type: 'EXPENSE_OPERATING', treatment: '50%', schedule: '1120-S Line 15' },
+    { code: '6030', name: 'Insurance', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 15' },
+    { code: '6040', name: 'Utilities', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 25' },
+    { code: '6050', name: 'Hardware & Tools', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 23' },
+    { code: '6060', name: 'Fuel', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 9' },
+    { code: '6070', name: 'Government Fees', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 24' },
+    { code: '6080', name: 'Office Supplies', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 18' },
+    { code: '6090', name: 'Bank Fees', type: 'EXPENSE_OPERATING', treatment: '100%', schedule: '1120-S Line 18' },
+
+    // PERSONAL USE (NON-DEDUCTIBLE)
+    { code: '6100', name: 'Groceries - Personal', type: 'EXPENSE_OPERATING', treatment: 'NON_DEDUCTIBLE', schedule: 'Owner Distribution' },
+    { code: '6110', name: 'Liquor - Personal', type: 'EXPENSE_OPERATING', treatment: 'NON_DEDUCTIBLE', schedule: 'Owner Distribution' },
+    { code: '6120', name: 'Personal Shopping', type: 'EXPENSE_OPERATING', treatment: 'NON_DEDUCTIBLE', schedule: 'Owner Distribution' },
+
+    // SPECIAL
+    { code: '9999', name: 'TRANSFER (Not Income/Expense)', type: 'ASSET', treatment: 'TRANSFER', schedule: 'Excluded' },
+  ];
+
+  for (const acc of taxAccounts) {
+    await prisma.taxAccount.upsert({
+      where: { companyId_code: { companyId: dovanFarms.id, code: acc.code } },
+      update: {},
+      create: {
+        companyId: dovanFarms.id,
+        code: acc.code,
+        name: acc.name,
+        accountType: acc.type as any,
+        taxTreatment: acc.treatment,
+        scheduleC: acc.schedule,
+        active: true,
+        isSystemAccount: false,
+      },
+    });
+  }
+
+  console.log(`✅ Seeded ${taxAccounts.length} tax accounts`);
+
+  // Create bank accounts
+  const operatingAcct = await prisma.bankAccount.upsert({
+    where: { companyId_accountNumber: { companyId: dovanFarms.id, accountNumber: '0055' } },
+    update: {},
+    create: {
+      companyId: dovanFarms.id,
+      name: 'Operating Account',
+      accountNumber: '0055',
+      bankName: 'Webster First',
+      accountType: 'checking',
+      currentBalance: 3188.62, // December 2023 ending balance
+      balanceAsOf: new Date('2023-12-31'),
+      active: true,
+    },
+  });
+
+  const payrollAcct = await prisma.bankAccount.upsert({
+    where: { companyId_accountNumber: { companyId: dovanFarms.id, accountNumber: '0056' } },
+    update: {},
+    create: {
+      companyId: dovanFarms.id,
+      name: 'Payroll Account',
+      accountNumber: '0056',
+      bankName: 'Webster First',
+      accountType: 'checking',
+      currentBalance: 306.97, // December 2023 ending balance
+      balanceAsOf: new Date('2023-12-31'),
+      active: true,
+    },
+  });
+
+  console.log(`✅ Seeded 2 bank accounts`);
+
+  // Get account IDs for rules
+  const grossReceipts = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '4010' } });
+  const landscapingSupplies = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '5010' } });
+  const payroll = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6010' } });
+  const meals = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6020' } });
+  const insurance = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6030' } });
+  const utilities = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6040' } });
+  const hardware = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6050' } });
+  const fuel = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6060' } });
+  const govFees = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6070' } });
+  const officeSupplies = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6080' } });
+  const bankFees = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6090' } });
+  const groceries = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6100' } });
+  const liquor = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6110' } });
+  const personalShopping = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '6120' } });
+  const transfer = await prisma.taxAccount.findFirst({ where: { companyId: dovanFarms.id, code: '9999' } });
+
+  // Create categorization rules (based on user's CLAUDE.md)
+  const rules = [
+    // INCOME
+    { name: 'Customer Deposits', match: 'CONTAINS', value: 'DEPOSIT BY CHECK', accountId: grossReceipts!.id, priority: 100 },
+
+    // PAYROLL
+    { name: 'Harpers Payroll Service', match: 'CONTAINS', value: '9782 DONOVAN FAR', accountId: payroll!.id, priority: 90 },
+    { name: 'Harpers Direct', match: 'CONTAINS', value: 'HARPERS PAYROLL', accountId: payroll!.id, priority: 90 },
+
+    // LANDSCAPING SUPPLIES
+    { name: 'Pro Lawn Supply', match: 'CONTAINS', value: 'PRO LAWN SUPPLY', accountId: landscapingSupplies!.id, priority: 80 },
+    { name: 'Busy Bee', match: 'CONTAINS', value: 'BUSY BEE', accountId: landscapingSupplies!.id, priority: 80 },
+    { name: 'SiteOne', match: 'CONTAINS', value: 'SITEONE', accountId: landscapingSupplies!.id, priority: 80 },
+    { name: 'Valley Green', match: 'CONTAINS', value: 'VALLEY GREEN', accountId: landscapingSupplies!.id, priority: 80 },
+
+    // HARDWARE & TOOLS
+    { name: 'Klem\'s', match: 'CONTAINS', value: 'KLEM', accountId: hardware!.id, priority: 70 },
+    { name: 'Rutland Hardware', match: 'CONTAINS', value: 'RUTLAND HARDWARE', accountId: hardware!.id, priority: 70 },
+    { name: 'Harbor Freight', match: 'CONTAINS', value: 'HARBOR FREIGHT', accountId: hardware!.id, priority: 70 },
+    { name: 'Tractor Supply', match: 'CONTAINS', value: 'TRACTOR SUPPLY', accountId: hardware!.id, priority: 70 },
+    { name: 'NAPA', match: 'CONTAINS', value: 'NAPA', accountId: hardware!.id, priority: 70 },
+
+    // FUEL
+    { name: 'Saveway Gas', match: 'CONTAINS', value: 'SAVEWAY', accountId: fuel!.id, priority: 70 },
+    { name: 'Shell', match: 'CONTAINS', value: 'SHELL', accountId: fuel!.id, priority: 70 },
+    { name: 'Mobil', match: 'CONTAINS', value: 'MOBIL', accountId: fuel!.id, priority: 70 },
+    { name: 'Cumberland Farms', match: 'CONTAINS', value: 'CUMBERLAND', accountId: fuel!.id, priority: 70 },
+
+    // MEALS (50% deductible)
+    { name: 'The Specialty Shoppe', match: 'CONTAINS', value: 'SPECIALTY SHOPPE', accountId: meals!.id, priority: 60 },
+    { name: 'Thai House', match: 'CONTAINS', value: 'THAI HOUSE', accountId: meals!.id, priority: 60 },
+    { name: 'Wong Dynasty', match: 'CONTAINS', value: 'WONG DYNASTY', accountId: meals!.id, priority: 60 },
+    { name: 'McDonald\'s', match: 'CONTAINS', value: 'MCDONALD', accountId: meals!.id, priority: 60 },
+    { name: 'Dunkin', match: 'CONTAINS', value: 'DUNKIN', accountId: meals!.id, priority: 60 },
+    { name: 'Dippin Donuts', match: 'CONTAINS', value: 'DIPPIN DONUTS', accountId: meals!.id, priority: 60 },
+    { name: 'Jimmy\'s Tavern', match: 'CONTAINS', value: 'JIMMY', accountId: meals!.id, priority: 60 },
+    { name: 'Chick-fil-A', match: 'CONTAINS', value: 'CHICK-FIL-A', accountId: meals!.id, priority: 60 },
+
+    // LIQUOR (personal/non-deductible)
+    { name: 'Main Street Discount Liquor', match: 'CONTAINS', value: 'MAIN STREET DIS', accountId: liquor!.id, priority: 65 },
+    { name: 'Holden Discount Liquor', match: 'CONTAINS', value: 'HOLDEN DISCOUNT', accountId: liquor!.id, priority: 65 },
+    { name: 'Total Wine', match: 'CONTAINS', value: 'TOTAL WINE', accountId: liquor!.id, priority: 65 },
+    { name: 'Wachusett Wine', match: 'CONTAINS', value: 'WACHUSETT WINE', accountId: liquor!.id, priority: 65 },
+
+    // PERSONAL GROCERIES (non-deductible)
+    { name: 'Walmart', match: 'CONTAINS', value: 'WALMART', accountId: groceries!.id, priority: 50 },
+    { name: 'BJ\'s Wholesale', match: 'CONTAINS', value: 'BJS WHOLESALE', accountId: groceries!.id, priority: 50 },
+    { name: 'Trader Joe\'s', match: 'CONTAINS', value: 'TRADER JOE', accountId: groceries!.id, priority: 50 },
+    { name: 'Big Y', match: 'CONTAINS', value: 'BIG Y', accountId: groceries!.id, priority: 50 },
+
+    // INSURANCE
+    { name: 'Safety Insurance', match: 'CONTAINS', value: 'SAFETY INSURANCE', accountId: insurance!.id, priority: 70 },
+
+    // UTILITIES
+    { name: 'Verizon', match: 'CONTAINS', value: 'VERIZON', accountId: utilities!.id, priority: 70 },
+
+    // GOVERNMENT FEES
+    { name: 'RMV Fees', match: 'CONTAINS', value: 'RMV', accountId: govFees!.id, priority: 70 },
+    { name: 'Excise Tax', match: 'CONTAINS', value: 'EXCISE', accountId: govFees!.id, priority: 70 },
+
+    // OFFICE SUPPLIES
+    { name: 'Staples', match: 'CONTAINS', value: 'STAPLES', accountId: officeSupplies!.id, priority: 60 },
+    { name: 'Office Depot', match: 'CONTAINS', value: 'OFFICE DEPOT', accountId: officeSupplies!.id, priority: 60 },
+
+    // BANK FEES
+    { name: 'Bank Service Charge', match: 'CONTAINS', value: 'SERVICE CHARGE', accountId: bankFees!.id, priority: 70 },
+
+    // TRANSFERS (exclude from income/expense)
+    { name: 'Internal Transfers', match: 'CONTAINS', value: 'PC BRANCH TRANSFER', accountId: transfer!.id, priority: 95 },
+    { name: 'Account Transfers', match: 'CONTAINS', value: 'XFER FROM', accountId: transfer!.id, priority: 95 },
+    { name: 'Account Transfers Out', match: 'CONTAINS', value: 'XFER TO', accountId: transfer!.id, priority: 95 },
+  ];
+
+  for (const rule of rules) {
+    await prisma.categorizationRule.create({
+      data: {
+        companyId: dovanFarms.id,
+        name: rule.name,
+        matchType: rule.match as any,
+        matchValue: rule.value,
+        taxAccountId: rule.accountId,
+        priority: rule.priority,
+        enabled: true,
+        autoCreated: false,
+      },
+    });
+  }
+
+  console.log(`✅ Seeded ${rules.length} categorization rules`);
+
   console.log('\n📈 Sample data created:');
   console.log(`   - ${accountsToSeed.length} accounts in Chart of Accounts`);
   console.log(`   - ${services.length} services`);
   console.log(`   - 1 customer`);
   console.log(`   - 7 posted journal entries`);
-  console.log(`\n💡 You can now test the P&L report with data from the last 30 days!`);
+  console.log(`   - 1 company (Donovan Farms Inc)`);
+  console.log(`   - ${taxAccounts.length} tax accounts`);
+  console.log(`   - 2 bank accounts`);
+  console.log(`   - ${rules.length} categorization rules`);
+  console.log(`\n💡 You can now import 2023 bank transactions and generate tax reports!`);
 }
 
 main()

@@ -28,3 +28,14 @@ export {
   generateProfitAndLoss,
   type ProfitAndLossReport,
 } from './reports';
+
+// Rule matching engine for auto-categorization
+export {
+  findMatchingRule,
+  categorizeTransactions,
+  testRuleMatch,
+  findAllMatchingRules,
+  suggestRule,
+  type MatchResult,
+  type RuleWithAccount,
+} from './rule-matching';

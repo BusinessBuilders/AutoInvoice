@@ -130,7 +130,7 @@ export default function ProfitAndLossPage() {
 
     const rows: string[] = [];
     rows.push(`Profit & Loss Statement`);
-    rows.push(`Period: ${formatDate(report.period.start)} to ${formatDate(report.period.end)}`);
+    rows.push(`Period: ${formatDate(new Date(report.period.start))} to ${formatDate(new Date(report.period.end))}`);
     rows.push('');
     rows.push('REVENUE');
     rows.push('Account Code,Account Name,Amount');
@@ -158,7 +158,7 @@ export default function ProfitAndLossPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `profit-loss-${formatDate(report.period.start)}-to-${formatDate(report.period.end)}.csv`;
+    a.download = `profit-loss-${formatDate(new Date(report.period.start))}-to-${formatDate(new Date(report.period.end))}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -297,8 +297,8 @@ export default function ProfitAndLossPage() {
 
           {report && (
             <div className="mt-4 text-sm text-gray-600">
-              Showing data from <strong>{formatDate(report.period.start)}</strong> to{' '}
-              <strong>{formatDate(report.period.end)}</strong>
+              Showing data from <strong>{formatDate(new Date(report.period.start))}</strong> to{' '}
+              <strong>{formatDate(new Date(report.period.end))}</strong>
             </div>
           )}
         </div>
@@ -443,7 +443,7 @@ export default function ProfitAndLossPage() {
                           tooltip: {
                             callbacks: {
                               label: (context) => {
-                                return formatCurrency(context.parsed.y);
+                                return formatCurrency(context.parsed.y ?? 0);
                               },
                             },
                           },

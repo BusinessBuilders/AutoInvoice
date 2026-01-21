@@ -28,6 +28,7 @@ export default function InvoiceDetailPage() {
   const [editedNotes, setEditedNotes] = useState('');
   const [editedServiceDate, setEditedServiceDate] = useState('');
   const [editedDueDate, setEditedDueDate] = useState('');
+  const [editedPaymentTerms, setEditedPaymentTerms] = useState('Net 30');
   const [editedServiceAddress, setEditedServiceAddress] = useState('');
   const [editedCustomerName, setEditedCustomerName] = useState('');
   const [editedCustomerEmail, setEditedCustomerEmail] = useState('');
@@ -38,9 +39,27 @@ export default function InvoiceDetailPage() {
   const [editedCustomerCity, setEditedCustomerCity] = useState('');
   const [editedCustomerState, setEditedCustomerState] = useState('');
   const [editedCustomerZipCode, setEditedCustomerZipCode] = useState('');
+  const [serviceSearchTerm, setServiceSearchTerm] = useState('');
 
   const { data: invoice, isLoading, refetch } = trpc.invoice.get.useQuery({ id: invoiceId });
   
+  // **Add services query**
+  const { data: servicesData } = trpc.service.list.useQuery();
+  
+  // Filter and group services
+  const filteredServices = servicesData?.filter((s: any) =>
+    s.name.toLowerCase().includes(serviceSearchTerm.toLowerCase()) ||
+    s.code.toLowerCase().includes(serviceSearchTerm.toLowerCase()) ||
+    s.category?.toLowerCase().includes(serviceSearchTerm.toLowerCase())
+  ) || [];
+
+  const groupedServices = filteredServices.reduce((acc: Record<string, any[]>, service: any) => {
+    const category = service.category || 'Uncategorized';
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(service);
+    return acc;
+  }, {});
+
   // Fetch journal entries for this invoice
   const { data: journalEntries, isLoading: isLoadingJournalEntries } = trpc.journal.getBySource.useQuery(
     {
@@ -77,6 +96,7 @@ export default function InvoiceDetailPage() {
       setEditedNotes(invoice.notes || '');
       setEditedServiceDate(new Date(invoice.serviceDate).toISOString().split('T')[0]);
       setEditedDueDate(new Date(invoice.dueDate).toISOString().split('T')[0]);
+      setEditedPaymentTerms(invoice.paymentTerms || 'Net 30');
       setEditedServiceAddress(invoice.serviceAddress || '');
 
       // Initialize customer fields
@@ -159,6 +179,24 @@ export default function InvoiceDetailPage() {
     setEditedLineItems(updated);
   };
 
+  // **Add service selection handler**
+  const handleServiceSelect = (index: number, serviceId: string) => {
+    const service = servicesData?.find(s => s.id === serviceId);
+    if (!service) return;
+
+    const updated = [...editedLineItems];
+    const basePrice = service.basePrice ? parseFloat(service.basePrice.toString()) : 0;
+    updated[index] = {
+      ...updated[index],
+      serviceId: service.id,
+      description: service.name,
+      unit: service.priceUnit || 'unit',
+      rate: basePrice,
+      amount: updated[index].quantity * basePrice,
+    };
+    setEditedLineItems(updated);
+  };
+
   const handleAddLineItem = () => {
     const newItem: EditableLineItem = {
       description: '',
@@ -205,6 +243,7 @@ export default function InvoiceDetailPage() {
         notes: editedNotes,
         serviceDate: new Date(editedServiceDate),
         dueDate: new Date(editedDueDate),
+        paymentTerms: editedPaymentTerms,
         serviceAddress: editedServiceAddress || undefined,
       });
 
@@ -523,8 +562,29 @@ export default function InvoiceDetailPage() {
                         type="date"
                         value={editedDueDate}
                         onChange={(e) => setEditedDueDate(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base py-2 px-3"
+                        className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2"
                       />
+                    )}
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium text-gray-500">Payment Terms</dt>
+                    {!isEditMode ? (
+                      <dd className="text-sm text-gray-900">
+                        {invoice.paymentTerms || 'Net 30'}
+                      </dd>
+                    ) : (
+                      <select
+                        value={editedPaymentTerms}
+                        onChange={(e) => setEditedPaymentTerms(e.target.value)}
+                        className="text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 px-3 py-2"
+                      >
+                        <option value="Due on Receipt">Due on Receipt</option>
+                        <option value="Net 15">Net 15</option>
+                        <option value="Net 30">Net 30</option>
+                        <option value="Net 45">Net 45</option>
+                        <option value="Net 60">Net 60</option>
+                        <option value="Net 90">Net 90</option>
+                      </select>
                     )}
                   </div>
                   <div>
@@ -619,6 +679,80 @@ export default function InvoiceDetailPage() {
                     </div>
 
                     <div className="space-y-3">
+                      {/* Service Selector */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Select from Service Catalog (Optional)
+                        </label>
+                        
+                        {/* Search Input */}
+                        <input
+                          type="text"
+                          placeholder="🔍 Search services by name, code, or category..."
+                          value={serviceSearchTerm}
+                          onChange={(e) => setServiceSearchTerm(e.target.value)}
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3 mb-2"
+                        />
+
+                        {/* Scrollable Service List */}
+                        <div className="max-h-64 overflow-y-auto border border-gray-300 rounded-md bg-white">
+                          {!servicesData?.length ? (
+                            <p className="p-4 text-sm text-gray-500 text-center">
+                              No services available. Add services in the Services page first.
+                            </p>
+                          ) : Object.keys(groupedServices).length === 0 ? (
+                            <p className="p-4 text-sm text-gray-500 text-center">
+                              No services match your search.
+                            </p>
+                          ) : (
+                            Object.entries(groupedServices).map(([category, services]: [string, any[]]) => (
+                              <div key={category} className="border-b border-gray-200 last:border-b-0">
+                                {/* Category Header */}
+                                <div className="bg-gray-100 px-3 py-2 sticky top-0">
+                                  <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                    {category}
+                                  </h4>
+                                </div>
+                                
+                                {/* Services in Category */}
+                                <div className="divide-y divide-gray-100">
+                                  {services.map((service: any) => (
+                                    <button
+                                      key={service.id}
+                                      type="button"
+                                      onClick={() => {
+                                        handleServiceSelect(index, service.id);
+                                        setServiceSearchTerm(''); // Clear search after selection
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors group"
+                                    >
+                                      <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                          <p className="text-sm font-medium text-gray-900 group-hover:text-blue-600">
+                                            {service.name}
+                                          </p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {service.code}
+                                          </p>
+                                        </div>
+                                        <div className="text-right ml-2">
+                                          <p className="text-sm font-semibold text-gray-900">
+                                            ${parseFloat(service.basePrice.toString()).toFixed(2)}
+                                          </p>
+                                          <p className="text-xs text-gray-500">
+                                            per {service.priceUnit || 'unit'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Description
@@ -757,7 +891,13 @@ export default function InvoiceDetailPage() {
             <div className="px-6 py-5 bg-blue-50 border-t border-blue-200">
               <h3 className="text-sm font-medium text-blue-900 mb-2">Payment Information</h3>
               <p className="text-sm text-blue-800">
-                Payment is due by {new Date(invoice.dueDate).toLocaleDateString()}
+                {invoice.paymentTerms === 'Due on Receipt' 
+                  ? 'Payment is due upon receipt'
+                  : `Payment due within ${invoice.paymentTerms?.replace('Net ', '') || '30'} days`
+                }
+              </p>
+              <p className="text-xs text-blue-700 mt-1">
+                Due by: {new Date(invoice.dueDate).toLocaleDateString()}
               </p>
             </div>
           )}
@@ -806,8 +946,8 @@ export default function InvoiceDetailPage() {
 
         {/* Journal Entries Section */}
         <div className="mt-6">
-          <JournalEntriesSection 
-            entries={journalEntries || []} 
+          <JournalEntriesSection
+            entries={(journalEntries as any) || []}
             isLoading={isLoadingJournalEntries}
           />
         </div>

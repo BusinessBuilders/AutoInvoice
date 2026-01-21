@@ -297,15 +297,33 @@ export const customerStatementRouter = router({
         address: user?.companyAddress || process.env.COMPANY_ADDRESS,
       };
 
-      // TODO: Generate PDF
-      // const { generateCustomerStatement } = await import('../services/pdf/statement-generator');
-      // const pdfPath = await generateCustomerStatement(...);
-      const pdfPath = `/tmp/statement-${customerId}-${Date.now()}.pdf`;
+      // Generate PDF
+      const { generateCustomerStatement } = await import('../services/pdf/statement-generator');
+      const pdfPath = await generateCustomerStatement(
+        {
+          name: customer.name,
+          email: customer.email || undefined,
+          phone: customer.phone || undefined,
+          company: customer.company || undefined,
+        },
+        invoiceData,
+        {
+          totalAmount: totalAmount.toString(),
+          overdueAmount: overdueAmount.toString(),
+        },
+        companyInfo
+      );
 
-      logger.info('Customer statement PDF generation requested', {
+      // Read PDF file and convert to base64 for download
+      const fs = await import('fs/promises');
+      const pdfBuffer = await fs.readFile(pdfPath);
+      const pdfBase64 = pdfBuffer.toString('base64');
+
+      logger.info('Customer statement PDF generated', {
         customerId,
         customerName: customer.name,
         invoiceCount: invoices.length,
+        pdfPath,
       });
 
       // TODO: Send email if requested
@@ -334,6 +352,7 @@ export const customerStatementRouter = router({
 
       return {
         pdfPath,
+        pdfBase64,
         emailSent,
         invoiceCount: invoices.length,
         totalAmount: totalAmount.toString(),

@@ -184,6 +184,7 @@ model Invoice {
   issueDate       DateTime  @default(now())
   dueDate         DateTime
   paidDate        DateTime?
+  paymentTerms    String?   @default("Net 30") // "Net 30", "Due on Receipt", "Net 15", etc.
 
   // Status
   status          InvoiceStatus @default(DRAFT)
@@ -1054,6 +1055,8 @@ model Account {
   // Relations
   journalLines    JournalLine[]
   expenseCategories ExpenseCategory[]
+  linkedBankAccounts BankAccount[]     // Bank/CC accounts linked to this Chart of Accounts entry
+  linkedTaxAccounts TaxAccount[]       // Tax categories linked to this Chart of Accounts entry
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -1193,4 +1196,272 @@ model ExpenseCategory {
   @@index([accountId])
   @@index([parentId])
   @@index([active])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BANK TRANSACTION & TAX REPORTING SYSTEM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Company {
+  id              String    @id @default(cuid())
+  userId          String
+
+  // Company Info
+  name            String
+  legalName       String?
+  taxId           String?   // EIN
+  taxType         String?   // "S-Corp", "LLC", "Sole Proprietor"
+  fiscalYearStart String    @default("01-01") // MM-DD format
+
+  // Address
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?
+
+  // Settings
+  active          Boolean   @default(true)
+
+  // Relations
+  bankAccounts    BankAccount[]
+  taxAccounts     TaxAccount[]
+  categorizationRules CategorizationRule[]
+  bankTransactions BankTransaction[]
+  vendors         Vendor[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([active])
+}
+
+model TaxAccount {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Account Info
+  code            String    // "1010", "4010", "6100"
+  name            String    // "Cash - Operating", "Gross Receipts"
+  accountType     TaxAccountType
+
+  // Tax Treatment
+  taxTreatment    String    // "100%", "50%", "NON_DEDUCTIBLE", "TRANSFER"
+  scheduleC       String?   // IRS form line number (for Schedule C/Form 1120-S)
+
+  // Configuration
+  active          Boolean   @default(true)
+  isSystemAccount Boolean   @default(false)
+
+  // Link to Chart of Accounts (unifies the two account systems)
+  linkedAccountId String?
+  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
+
+  // Relations
+  bankTransactions BankTransaction[]
+  categorizationRules CategorizationRule[]
+  vendorDefaults  Vendor[]                // Vendors that use this as default category
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([accountType])
+  @@index([taxTreatment])
+}
+
+model BankAccount {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Account Info
+  name            String    // "Operating Account", "Payroll Account"
+  accountNumber   String?   // Last 4 digits (e.g., "0055")
+  bankName        String?
+  accountType     String    @default("checking") // "checking", "savings", "credit_card"
+
+  // Link to Chart of Accounts
+  linkedAccountId String?   // Links to Account (Asset for checking/savings, Liability for credit cards)
+  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
+
+  // Balance Tracking
+  currentBalance  Decimal   @default(0)
+  balanceAsOf     DateTime  @default(now())
+
+  // Configuration
+  active          Boolean   @default(true)
+  isPrimary       Boolean   @default(false)  // Primary account for the company
+
+  // Relations
+  transactions    BankTransaction[]
+  vendorDefaults  Vendor[]           // Vendors that use this as default bank account
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, accountNumber])
+  @@index([companyId])
+  @@index([active])
+  @@index([linkedAccountId])
+}
+
+model CategorizationRule {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Rule Info
+  name            String
+
+  // Matching Logic
+  matchType       MatchType // CONTAINS, STARTS_WITH, EXACT, REGEX
+  matchValue      String
+
+  // Target Category
+  taxAccountId    String
+  taxAccount      TaxAccount @relation(fields: [taxAccountId], references: [id])
+
+  // Optional: Link to Vendor (when rule matches, also assign vendor)
+  vendorId        String?
+  vendor          Vendor?    @relation(fields: [vendorId], references: [id])
+
+  // Priority & Control
+  priority        Int       @default(0) // Higher priority = applied first
+  enabled         Boolean   @default(true)
+  autoCreated     Boolean   @default(false) // Created from user manual categorization
+
+  // Statistics
+  timesMatched    Int       @default(0)
+  lastMatchedAt   DateTime?
+
+  // Relations
+  transactions    BankTransaction[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([enabled])
+  @@index([priority])
+}
+
+model BankTransaction {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Bank Account
+  bankAccountId   String
+  bankAccount     BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  // Transaction Details
+  date            DateTime
+  description     String
+  amount          Decimal   @db.Decimal(10, 2) // Negative for expenses, positive for income
+  balance         Decimal   @db.Decimal(10, 2) // Balance after transaction
+
+  // Categorization
+  taxAccountId    String?
+  taxAccount      TaxAccount? @relation(fields: [taxAccountId], references: [id])
+
+  matchedRuleId   String?
+  matchedRule     CategorizationRule? @relation(fields: [matchedRuleId], references: [id])
+
+  // Manual Override
+  isManualCategorization Boolean @default(false)
+  needsReview     Boolean   @default(true)
+
+  // Vendor Tracking
+  vendorId        String?
+  vendor          Vendor?   @relation(fields: [vendorId], references: [id])
+  vendorRaw       String?   // Original from bank: "AMAZON.COM*MF4Y"
+
+  // Split Transaction Support
+  parentId        String?   // If this is a split child
+  parent          BankTransaction? @relation("SplitParent", fields: [parentId], references: [id], onDelete: Cascade)
+  splits          BankTransaction[] @relation("SplitParent")
+  isSplit         Boolean   @default(false)  // True if this is a split parent
+  splitIndex      Int?      // Order within split group (for children)
+
+  // Optional Links
+  invoiceId       String?   // Link to existing Invoice
+  receiptId       String?   // Link to existing Receipt
+
+  // Metadata
+  notes           String?
+  tags            String[]
+
+  // Import tracking
+  importSource    String?   // "csv", "json", "pdf_vision", "manual"
+  importBatchId   String?   // Group transactions from same import
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@index([date])
+  @@index([taxAccountId])
+  @@index([needsReview])
+  @@index([importBatchId])
+  @@index([vendorId])
+  @@index([parentId])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VENDOR MANAGEMENT & SPLIT TRANSACTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Vendor {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Vendor Info
+  name            String                // "Amazon", "Shell", "Home Depot"
+  matchPatterns   String[]              // ["AMAZON", "AMZN"] - patterns to auto-detect
+
+  // Optional Defaults
+  defaultBankAccountId  String?         // Which card typically used for this vendor
+  defaultBankAccount    BankAccount?    @relation(fields: [defaultBankAccountId], references: [id])
+  defaultTaxAccountId   String?         // Default category (if single-category vendor)
+  defaultTaxAccount     TaxAccount?     @relation(fields: [defaultTaxAccountId], references: [id])
+
+  // Flags
+  requiresSplit   Boolean   @default(false)  // True for Amazon (usually multi-category)
+  isActive        Boolean   @default(true)
+
+  // Metadata
+  notes           String?   // "Usually office supplies + personal mixed"
+
+  // Relations
+  transactions    BankTransaction[]
+  categorizationRules CategorizationRule[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([isActive])
+}
+
+// Enums for Bank Transaction System
+enum TaxAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE_COGS
+  EXPENSE_OPERATING
+}
+
+enum MatchType {
+  CONTAINS
+  STARTS_WITH
+  EXACT
+  REGEX
 }

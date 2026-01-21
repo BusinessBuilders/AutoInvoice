@@ -17,11 +17,22 @@ export default function InvoicesPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<{ id: string; number: string } | null>(null);
 
+  // Sorting and date range filtering state
+  const [sortBy, setSortBy] = useState<'serviceDate' | 'issueDate' | 'dueDate' | 'createdAt'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [serviceDateFrom, setServiceDateFrom] = useState<string>('');
+  const [serviceDateTo, setServiceDateTo] = useState<string>('');
+
   const { data: invoicesData, isLoading, refetch } = trpc.invoice.list.useQuery({
     customerId: customerId || undefined,
     limit: 100,
+    sortBy,
+    sortOrder,
+    serviceDateFrom: serviceDateFrom ? new Date(serviceDateFrom) : undefined,
+    serviceDateTo: serviceDateTo ? new Date(serviceDateTo) : undefined,
   });
   const deleteInvoiceMutation = trpc.invoice.delete.useMutation();
+  const updateStatusMutation = trpc.invoice.updateStatus.useMutation();
 
   const filteredInvoices = invoicesData?.invoices?.filter((invoice) => {
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
@@ -62,6 +73,21 @@ export default function InvoicesPage() {
     } catch (error: any) {
       alert(`Failed to delete invoice: ${error.message}`);
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleMarkAsSent = async (e: React.MouseEvent, invoiceId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      await updateStatusMutation.mutateAsync({
+        id: invoiceId,
+        status: 'SENT',
+      });
+      await refetch();
+    } catch (error: any) {
+      alert(`Failed to update invoice: ${error.message}`);
     }
   };
 
@@ -118,6 +144,69 @@ export default function InvoicesPage() {
           </div>
         </div>
 
+        {/* Sort and Filter Controls */}
+        <div className="bg-white rounded-lg shadow p-4 mb-6">
+          <div className="flex flex-wrap items-center gap-4">
+            {/* Sort Controls */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Sort by:</label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              >
+                <option value="serviceDate">Service Date</option>
+                <option value="issueDate">Issue Date</option>
+                <option value="dueDate">Due Date</option>
+                <option value="createdAt">Created Date</option>
+              </select>
+
+              <button
+                onClick={() => setSortOrder(order => order === 'desc' ? 'asc' : 'desc')}
+                className="px-3 py-1.5 rounded-md border border-gray-300 hover:bg-gray-50 text-sm font-medium flex items-center gap-1"
+              >
+                {sortOrder === 'desc' ? '↓ Newest First' : '↑ Oldest First'}
+              </button>
+            </div>
+
+            {/* Vertical Divider */}
+            <div className="h-8 w-px bg-gray-300"></div>
+
+            {/* Date Range Filter */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Service Date:</label>
+              <input
+                type="date"
+                value={serviceDateFrom}
+                onChange={(e) => setServiceDateFrom(e.target.value)}
+                className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                placeholder="From"
+              />
+              <span className="text-gray-500">to</span>
+              <input
+                type="date"
+                value={serviceDateTo}
+                onChange={(e) => setServiceDateTo(e.target.value)}
+                className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                placeholder="To"
+              />
+
+              {/* Clear Date Filter Button */}
+              {(serviceDateFrom || serviceDateTo) && (
+                <button
+                  onClick={() => {
+                    setServiceDateFrom('');
+                    setServiceDateTo('');
+                  }}
+                  className="px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Invoice List */}
         {isLoading ? (
           <div className="text-center py-12">
@@ -133,7 +222,7 @@ export default function InvoicesPage() {
                     href={`/invoices/${invoice.id}`}
                     className="block hover:bg-gray-50 transition-colors"
                   >
-                    <div className="px-4 py-4 sm:px-6 pr-20">
+                    <div className="px-4 py-4 sm:px-6 pr-32">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center">
@@ -180,13 +269,26 @@ export default function InvoicesPage() {
                       </div>
                     </div>
                   </Link>
-                  <button
-                    onClick={(e) => handleDeleteClick(e, invoice)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
-                    title="Delete invoice"
-                  >
-                    🗑️
-                  </button>
+                  {/* Action buttons */}
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex gap-2">
+                    {invoice.status === 'DRAFT' && (
+                      <button
+                        onClick={(e) => handleMarkAsSent(e, invoice.id)}
+                        disabled={updateStatusMutation.isPending}
+                        className="p-2 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded-md transition-colors disabled:opacity-50"
+                        title="Mark as Sent"
+                      >
+                        📤
+                      </button>
+                    )}
+                    <button
+                      onClick={(e) => handleDeleteClick(e, invoice)}
+                      className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-md transition-colors"
+                      title="Delete invoice"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

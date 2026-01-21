@@ -19,6 +19,7 @@ export default function QuickInvoicePage() {
   const [autoCreateCustomer, setAutoCreateCustomer] = useState(true);
   const [autoCreateService, setAutoCreateService] = useState(false);
   const [jobName, setJobName] = useState('');
+  const [customDescriptions, setCustomDescriptions] = useState<{ [key: number]: string }>({});
 
   const utils = trpc.useContext();
   const { data: customersData } = trpc.customer.list.useQuery({ limit: 100 });
@@ -33,6 +34,20 @@ export default function QuickInvoicePage() {
       }
     }
   }, [customerId, customersData]);
+
+  // Initialize custom descriptions when parsed result changes
+  useEffect(() => {
+    if (parsed?.lineItems) {
+      const initialDescriptions: { [key: number]: string } = {};
+      parsed.lineItems.forEach((item: any, index: number) => {
+        // Initialize with auto-generated description
+        initialDescriptions[index] = item.service
+          ? `${item.service.name} - ${item.quantity} ${item.unit}`
+          : item.description || '';
+      });
+      setCustomDescriptions(initialDescriptions);
+    }
+  }, [parsed]);
 
   const parseInvoice = trpc.smartTemplates.parseQuickInvoice.useMutation();
   const createInvoice = trpc.invoice.create.useMutation({
@@ -90,9 +105,7 @@ export default function QuickInvoicePage() {
       serviceAddress: jobName || undefined,
       lineItems: parsed.lineItems.map((item: any, index: number) => ({
         serviceId: item.service?.id || null,
-        description: item.service
-          ? `${item.service.name} - ${item.quantity} ${item.unit}`
-          : item.description,
+        description: customDescriptions[index] || item.description || '',
         quantity: item.quantity,
         unit: item.unit,
         rate: item.rate,
@@ -299,7 +312,7 @@ export default function QuickInvoicePage() {
                 <p className="text-xs font-medium text-gray-500 uppercase">Line Items</p>
                 {parsed.lineItems.map((item: any, index: number) => (
                   <div key={index} className="p-4 bg-purple-50 rounded-lg border-l-4 border-purple-600">
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start mb-3">
                       <div>
                         <p className="font-semibold text-gray-900">
                           {item.service?.name || item.description}
@@ -314,6 +327,22 @@ export default function QuickInvoicePage() {
                           {item.quantity.toLocaleString()} {item.unit} @ ${item.rate.toFixed(2)}
                         </p>
                       </div>
+                    </div>
+                    {/* Editable Description */}
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1 block">
+                        Description / Work Details
+                      </label>
+                      <textarea
+                        value={customDescriptions[index] || ''}
+                        onChange={(e) => setCustomDescriptions({
+                          ...customDescriptions,
+                          [index]: e.target.value,
+                        })}
+                        placeholder="Describe the work done (e.g., Trimmed branches and removed dead wood...)"
+                        className="w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 text-sm py-2 px-3"
+                        rows={2}
+                      />
                     </div>
                   </div>
                 ))}

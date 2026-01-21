@@ -6,6 +6,7 @@ import {
   createInvoicePaymentEntry
 } from '../services/accounting/journal-service';
 import logger from '../utils/logger';
+import { calculateDueDate } from '../utils/payment-terms';
 
 const lineItemSchema = z.object({
   serviceId: z.string().nullish(),
@@ -22,7 +23,9 @@ const createInvoiceSchema = z.object({
   locationId: z.string().optional(),
   serviceAddress: z.string().optional(),
   serviceDate: z.coerce.date(),
-  dueDate: z.coerce.date(),
+  issueDate: z.coerce.date().optional(), // Optional, defaults to now()
+  dueDate: z.coerce.date().optional(), // Optional, will be calculated from paymentTerms if not provided
+  paymentTerms: z.string().default('Net 30'), // "Net 30", "Due on Receipt", etc.
   lineItems: z.array(lineItemSchema),
   notes: z.string().optional(),
   terms: z.string().optional(),
@@ -40,10 +43,16 @@ export const invoiceRouter = router({
         cursor: z.string().optional(),
         status: z.nativeEnum(InvoiceStatus).optional(),
         customerId: z.string().optional(),
+        // Sorting parameters
+        sortBy: z.enum(['serviceDate', 'issueDate', 'dueDate', 'createdAt']).default('createdAt'),
+        sortOrder: z.enum(['asc', 'desc']).default('desc'),
+        // Date range filtering
+        serviceDateFrom: z.coerce.date().optional(),
+        serviceDateTo: z.coerce.date().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
-      const { limit, cursor, status, customerId } = input;
+      const { limit, cursor, status, customerId, sortBy, sortOrder, serviceDateFrom, serviceDateTo } = input;
 
       const invoices = await ctx.prisma.invoice.findMany({
         take: limit + 1,
@@ -51,6 +60,15 @@ export const invoiceRouter = router({
         where: {
           ...(status && { status }),
           ...(customerId && { customerId }),
+          // Date range filtering
+          ...(serviceDateFrom || serviceDateTo
+            ? {
+                serviceDate: {
+                  ...(serviceDateFrom && { gte: serviceDateFrom }),
+                  ...(serviceDateTo && { lte: serviceDateTo }),
+                },
+              }
+            : {}),
         },
         include: {
           customer: true,
@@ -58,7 +76,7 @@ export const invoiceRouter = router({
             orderBy: { order: 'asc' },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [sortBy]: sortOrder },
       });
 
       let nextCursor: string | undefined = undefined;
@@ -103,7 +121,13 @@ export const invoiceRouter = router({
   create: protectedProcedure
     .input(createInvoiceSchema)
     .mutation(async ({ ctx, input }) => {
-      const { lineItems, taxRate, discount, ...invoiceData } = input;
+      const { lineItems, taxRate, discount, paymentTerms, issueDate, dueDate, ...invoiceData } = input;
+
+      // Set issue date (default to now if not provided)
+      const finalIssueDate = issueDate || new Date();
+
+      // Calculate due date from payment terms if not explicitly provided
+      const finalDueDate = dueDate || calculateDueDate(finalIssueDate, paymentTerms);
 
       // Calculate totals
       const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
@@ -126,6 +150,9 @@ export const invoiceRouter = router({
         data: {
           ...invoiceData,
           invoiceNumber,
+          issueDate: finalIssueDate,
+          dueDate: finalDueDate,
+          paymentTerms,
           subtotal,
           taxRate,
           taxAmount,
@@ -151,7 +178,9 @@ export const invoiceRouter = router({
         locationId: z.string().optional(),
         serviceAddress: z.string().optional(),
         serviceDate: z.coerce.date().optional(),
+        issueDate: z.coerce.date().optional(),
         dueDate: z.coerce.date().optional(),
+        paymentTerms: z.string().optional(),
         lineItems: z.array(lineItemSchema.extend({ id: z.string().optional() })).optional(),
         notes: z.string().optional(),
         terms: z.string().optional(),
@@ -160,7 +189,7 @@ export const invoiceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, lineItems, taxRate, discount, ...invoiceData } = input;
+      const { id, lineItems, taxRate, discount, issueDate, dueDate, paymentTerms, ...invoiceData } = input;
 
       // Get current invoice to preserve existing values
       const currentInvoice = await ctx.prisma.invoice.findUnique({
@@ -172,12 +201,25 @@ export const invoiceRouter = router({
         throw new Error('Invoice not found');
       }
 
+      // Recalculate due date if issueDate or paymentTerms changed
+      let finalDueDate = dueDate;
+      if (!finalDueDate && (issueDate || paymentTerms)) {
+        const finalIssueDate = issueDate || currentInvoice.issueDate;
+        const finalPaymentTerms = paymentTerms || currentInvoice.paymentTerms || 'Net 30';
+        finalDueDate = calculateDueDate(finalIssueDate, finalPaymentTerms);
+      }
+
       // Use provided values or fall back to current values (default to 0 if null)
       const finalTaxRate = taxRate !== undefined ? taxRate : Number(currentInvoice.taxRate || 0);
       const finalDiscount = discount !== undefined ? discount : Number(currentInvoice.discount || 0);
 
       // If line items are provided, recalculate totals
-      let updates: any = { ...invoiceData };
+      let updates: any = { 
+        ...invoiceData,
+        ...(issueDate && { issueDate }),
+        ...(finalDueDate && { dueDate: finalDueDate }),
+        ...(paymentTerms && { paymentTerms }),
+      };
 
       if (lineItems) {
         const subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);

@@ -12,6 +12,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 export interface StatementCustomer {
   name: string;
   email?: string;
+  phone?: string;
   company?: string;
 }
 
