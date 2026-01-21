@@ -131,10 +131,14 @@ export default function ImportTransactionsPage() {
             const dataLines = hasHeader ? lines.slice(1) : lines;
             const parsed: ParsedTransaction[] = [];
 
+            // Auto-detect delimiter (tab or comma)
+            const firstDataLine = dataLines[0] || lines[0];
+            const delimiter = firstDataLine.includes('\t') ? '\t' : ',';
+
             for (const line of dataLines) {
               if (!line.trim()) continue;
 
-              // CSV parsing (handles quoted strings)
+              // CSV/TSV parsing (handles quoted strings)
               const cells: string[] = [];
               let current = '';
               let inQuotes = false;
@@ -142,7 +146,7 @@ export default function ImportTransactionsPage() {
               for (const char of line) {
                 if (char === '"') {
                   inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
+                } else if (char === delimiter && !inQuotes) {
                   cells.push(current.trim());
                   current = '';
                 } else {
@@ -152,12 +156,28 @@ export default function ImportTransactionsPage() {
               cells.push(current.trim());
 
               if (cells.length >= 3) {
-                parsed.push({
-                  date: cells[0],
-                  description: cells[1],
-                  amount: parseFloat(cells[2].replace(/[$,]/g, '')) || 0,
-                  balance: parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0,
-                });
+                // Auto-detect column order by checking if column 1 looks like money
+                const col1LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[1].replace(/[$,]/g, ''));
+                const col2LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[2].replace(/[$,]/g, ''));
+
+                let date: string, description: string, amount: number, balance: number;
+
+                if (col1LooksMoney && !col2LooksMoney) {
+                  // Format: Date, Amount, Description, [Type/Balance]
+                  date = cells[0];
+                  amount = parseFloat(cells[1].replace(/[$,]/g, '')) || 0;
+                  description = cells[2];
+                  balance = cells[3] && /^-?\$?[\d,]+\.?\d*$/.test(cells[3].replace(/[$,]/g, ''))
+                    ? parseFloat(cells[3].replace(/[$,]/g, '')) : 0;
+                } else {
+                  // Format: Date, Description, Amount, [Balance]
+                  date = cells[0];
+                  description = cells[1];
+                  amount = parseFloat(cells[2].replace(/[$,]/g, '')) || 0;
+                  balance = parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0;
+                }
+
+                parsed.push({ date, description, amount, balance });
               }
             }
 
@@ -224,10 +244,14 @@ export default function ImportTransactionsPage() {
       const dataLines = hasHeader ? lines.slice(1) : lines;
       const parsed: ParsedTransaction[] = [];
 
+      // Auto-detect delimiter (tab or comma)
+      const firstDataLine = dataLines[0] || lines[0];
+      const delimiter = firstDataLine.includes('\t') ? '\t' : ',';
+
       for (const line of dataLines) {
         if (!line.trim()) continue;
 
-        // Simple CSV parsing (handles quoted strings with commas)
+        // CSV/TSV parsing (handles quoted strings)
         const cells: string[] = [];
         let current = '';
         let inQuotes = false;
@@ -235,7 +259,7 @@ export default function ImportTransactionsPage() {
         for (const char of line) {
           if (char === '"') {
             inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
+          } else if (char === delimiter && !inQuotes) {
             cells.push(current.trim());
             current = '';
           } else {
@@ -244,14 +268,29 @@ export default function ImportTransactionsPage() {
         }
         cells.push(current.trim());
 
-        // Assume format: Date, Description, Amount, Balance
+        // Auto-detect column order by checking if column 1 looks like money
         if (cells.length >= 3) {
-          parsed.push({
-            date: cells[0],
-            description: cells[1],
-            amount: parseFloat(cells[2].replace(/[$,]/g, '')) || 0,
-            balance: parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0,
-          });
+          const col1LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[1].replace(/[$,]/g, ''));
+          const col2LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[2].replace(/[$,]/g, ''));
+
+          let date: string, description: string, amount: number, balance: number;
+
+          if (col1LooksMoney && !col2LooksMoney) {
+            // Format: Date, Amount, Description, [Type/Balance]
+            date = cells[0];
+            amount = parseFloat(cells[1].replace(/[$,]/g, '')) || 0;
+            description = cells[2];
+            balance = cells[3] && /^-?\$?[\d,]+\.?\d*$/.test(cells[3].replace(/[$,]/g, ''))
+              ? parseFloat(cells[3].replace(/[$,]/g, '')) : 0;
+          } else {
+            // Format: Date, Description, Amount, [Balance]
+            date = cells[0];
+            description = cells[1];
+            amount = parseFloat(cells[2].replace(/[$,]/g, '')) || 0;
+            balance = parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0;
+          }
+
+          parsed.push({ date, description, amount, balance });
         }
       }
 

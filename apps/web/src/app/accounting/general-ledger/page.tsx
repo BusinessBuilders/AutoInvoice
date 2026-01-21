@@ -103,6 +103,9 @@ export default function GeneralLedgerPage() {
   });
   const [bulkPatternCategoryId, setBulkPatternCategoryId] = useState('');
 
+  // Personal quick-categorize dropdown
+  const [personalMenuOpen, setPersonalMenuOpen] = useState<string | null>(null);
+
   useEffect(() => {
     requireAuth();
   }, [requireAuth]);
@@ -806,6 +809,42 @@ export default function GeneralLedgerPage() {
                             🔀
                           </button>
                         )}
+                        {/* Personal quick-categorize button */}
+                        <div className="relative">
+                          <button
+                            onClick={() => setPersonalMenuOpen(personalMenuOpen === t.id ? null : t.id)}
+                            className="text-green-600 hover:text-green-800"
+                            title="Mark as personal expense"
+                          >
+                            🏠
+                          </button>
+                          {personalMenuOpen === t.id && (
+                            <div className="absolute right-0 top-6 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-[160px]">
+                              {taxAccounts?.filter((ta: any) =>
+                                ['6100', '6110', '6120', '3030'].includes(ta.code)
+                              ).map((ta: any) => (
+                                <button
+                                  key={ta.id}
+                                  onClick={() => {
+                                    updateMutation.mutate(
+                                      { id: t.id, taxAccountId: ta.id },
+                                      { onSuccess: () => setPersonalMenuOpen(null) }
+                                    );
+                                  }}
+                                  className="block w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100"
+                                >
+                                  {ta.name}
+                                </button>
+                              ))}
+                              <button
+                                onClick={() => setPersonalMenuOpen(null)}
+                                className="block w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-100 border-t"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          )}
+                        </div>
                         <button
                           onClick={() => openCreateRuleModal(t.description, t.taxAccountId)}
                           className="text-blue-500 hover:text-blue-700"
