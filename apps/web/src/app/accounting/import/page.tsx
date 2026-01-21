@@ -23,8 +23,8 @@ export default function ImportTransactionsPage() {
   const [parsedTransactions, setParsedTransactions] = useState<ParsedTransaction[]>([]);
   const [parseError, setParseError] = useState('');
   const [importResult, setImportResult] = useState<{ imported: number; skipped?: number; categorized: number; uncategorized: number } | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfParsing, setPdfParsing] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [fileParsing, setFileParsing] = useState(false);
   const [pdfInfo, setPdfInfo] = useState<{ bankName?: string; accountNumber?: string; period?: { start: string; end: string } } | null>(null);
 
   useEffect(() => {
@@ -73,7 +73,7 @@ export default function ImportTransactionsPage() {
   // PDF parsing mutation
   const parsePdfMutation = trpc.bankTransactions.parsePDF.useMutation({
     onSuccess: (result) => {
-      setPdfParsing(false);
+      setFileParsing(false);
       if (result.success && result.transactions.length > 0) {
         const mapped = result.transactions.map((t) => ({
           date: t.date,
@@ -93,29 +93,96 @@ export default function ImportTransactionsPage() {
       }
     },
     onError: (error) => {
-      setPdfParsing(false);
+      setFileParsing(false);
       setParseError(error.message);
     },
   });
 
-  // Handle PDF file selection
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle file upload (PDF or CSV)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setPdfFile(file);
-    setPdfParsing(true);
+    setUploadedFile(file);
     setParseError('');
     setParsedTransactions([]);
     setPdfInfo(null);
 
-    // Read file as base64
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = (reader.result as string).split(',')[1];
-      parsePdfMutation.mutate({ pdfBase64: base64 });
-    };
-    reader.readAsDataURL(file);
+    const isCSV = file.name.toLowerCase().endsWith('.csv');
+
+    if (isCSV) {
+      // Read CSV as text and parse locally
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result as string;
+        setRawData(text);
+        // Trigger parse after setting data
+        setTimeout(() => {
+          // Parse inline since we can't call parseData directly with new value
+          try {
+            const lines = text.trim().split('\n');
+            if (lines.length < 2) {
+              setParseError('CSV must have a header row and at least one data row');
+              return;
+            }
+
+            const header = lines[0].toLowerCase();
+            const hasHeader = header.includes('date') || header.includes('description') || header.includes('amount');
+            const dataLines = hasHeader ? lines.slice(1) : lines;
+            const parsed: ParsedTransaction[] = [];
+
+            for (const line of dataLines) {
+              if (!line.trim()) continue;
+
+              // CSV parsing (handles quoted strings)
+              const cells: string[] = [];
+              let current = '';
+              let inQuotes = false;
+
+              for (const char of line) {
+                if (char === '"') {
+                  inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                  cells.push(current.trim());
+                  current = '';
+                } else {
+                  current += char;
+                }
+              }
+              cells.push(current.trim());
+
+              if (cells.length >= 3) {
+                parsed.push({
+                  date: cells[0],
+                  description: cells[1],
+                  amount: parseFloat(cells[2].replace(/[$,]/g, '')) || 0,
+                  balance: parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0,
+                });
+              }
+            }
+
+            if (parsed.length === 0) {
+              setParseError('No valid transactions found in CSV');
+              return;
+            }
+
+            setParsedTransactions(parsed);
+          } catch (err: any) {
+            setParseError(`CSV parse error: ${err.message}`);
+          }
+        }, 0);
+      };
+      reader.readAsText(file);
+    } else {
+      // PDF - use AI parsing
+      setFileParsing(true);
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = (reader.result as string).split(',')[1];
+        parsePdfMutation.mutate({ pdfBase64: base64 });
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Parse CSV/JSON data
@@ -360,23 +427,23 @@ export default function ImportTransactionsPage() {
           </div>
         </div>
 
-        {/* PDF Upload */}
+        {/* File Upload (PDF or CSV) */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">📄 Upload Statement PDF</h2>
+          <h2 className="text-lg font-medium text-gray-900 mb-4">📄 Upload Statement (PDF or CSV)</h2>
           <p className="text-sm text-gray-600 mb-4">
-            Upload a bank or credit card statement PDF. AI will extract transactions and auto-create the account if needed.
+            Upload a bank or credit card statement. PDF uses AI extraction, CSV is parsed directly.
           </p>
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
             <input
               type="file"
-              accept=".pdf"
-              onChange={handlePdfUpload}
+              accept=".pdf,.csv"
+              onChange={handleFileUpload}
               className="hidden"
-              id="pdf-upload"
-              disabled={pdfParsing}
+              id="file-upload"
+              disabled={fileParsing}
             />
-            <label htmlFor="pdf-upload" className="cursor-pointer">
-              {pdfParsing ? (
+            <label htmlFor="file-upload" className="cursor-pointer">
+              {fileParsing ? (
                 <div>
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
                   <p className="text-blue-600">Parsing PDF with AI... This may take 30-60 seconds</p>
@@ -385,10 +452,10 @@ export default function ImportTransactionsPage() {
                 <div>
                   <div className="text-4xl mb-2">📤</div>
                   <p className="text-gray-700 font-medium">
-                    {pdfFile ? pdfFile.name : 'Click to upload bank or credit card statement'}
+                    {uploadedFile ? uploadedFile.name : 'Click to upload statement (PDF or CSV)'}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    Supports most bank and credit card statement formats
+                    PDF: AI extracts transactions • CSV: Date, Description, Amount, Balance
                   </p>
                 </div>
               )}
