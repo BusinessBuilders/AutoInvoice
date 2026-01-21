@@ -156,28 +156,42 @@ export default function ImportTransactionsPage() {
               cells.push(current.trim());
 
               if (cells.length >= 3) {
-                // Auto-detect column order by checking if column 1 looks like money
-                const col1LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[1].replace(/[$,]/g, ''));
-                const col2LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[2].replace(/[$,]/g, ''));
+                // Smart column detection
+                const looksLikeMoney = (s: string) => /^-?\$?[\d,]+\.?\d*$/.test(s.replace(/[$,]/g, ''));
+                const looksLikeDate = (s: string) => /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(s);
 
-                let date: string, description: string, amount: number, balance: number;
+                let date = '', description = '', amount = 0, balance = 0;
 
-                if (col1LooksMoney && !col2LooksMoney) {
-                  // Format: Date, Amount, Description, [Type/Balance]
-                  date = cells[0];
+                // Find date (usually first column)
+                date = cells[0];
+
+                // Find amount - check last columns first (most CC exports put amount at end)
+                const lastCol = cells[cells.length - 1];
+
+                if (looksLikeMoney(lastCol) && parseFloat(lastCol.replace(/[$,]/g, '')) !== 0) {
+                  // Amount is in last column (credit card format)
+                  amount = parseFloat(lastCol.replace(/[$,]/g, '')) || 0;
+                  // Description is first non-empty, non-date column
+                  for (let i = 1; i < cells.length - 1; i++) {
+                    if (cells[i] && cells[i].length > 2 && !looksLikeMoney(cells[i]) && !looksLikeDate(cells[i])) {
+                      description = cells[i];
+                      break;
+                    }
+                  }
+                } else if (looksLikeMoney(cells[1])) {
+                  // Format: Date, Amount, Description
                   amount = parseFloat(cells[1].replace(/[$,]/g, '')) || 0;
-                  description = cells[2];
-                  balance = cells[3] && /^-?\$?[\d,]+\.?\d*$/.test(cells[3].replace(/[$,]/g, ''))
-                    ? parseFloat(cells[3].replace(/[$,]/g, '')) : 0;
+                  description = cells[2] || '';
                 } else {
                   // Format: Date, Description, Amount, [Balance]
-                  date = cells[0];
                   description = cells[1];
                   amount = parseFloat(cells[2].replace(/[$,]/g, '')) || 0;
                   balance = parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0;
                 }
 
-                parsed.push({ date, description, amount, balance });
+                if (date && (description || amount !== 0)) {
+                  parsed.push({ date, description, amount, balance });
+                }
               }
             }
 
@@ -268,29 +282,43 @@ export default function ImportTransactionsPage() {
         }
         cells.push(current.trim());
 
-        // Auto-detect column order by checking if column 1 looks like money
+        // Smart column detection
         if (cells.length >= 3) {
-          const col1LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[1].replace(/[$,]/g, ''));
-          const col2LooksMoney = /^-?\$?[\d,]+\.?\d*$/.test(cells[2].replace(/[$,]/g, ''));
+          const looksLikeMoney = (s: string) => /^-?\$?[\d,]+\.?\d*$/.test(s.replace(/[$,]/g, ''));
+          const looksLikeDate = (s: string) => /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(s);
 
-          let date: string, description: string, amount: number, balance: number;
+          let date = '', description = '', amount = 0, balance = 0;
 
-          if (col1LooksMoney && !col2LooksMoney) {
-            // Format: Date, Amount, Description, [Type/Balance]
-            date = cells[0];
+          // Find date (usually first column)
+          date = cells[0];
+
+          // Find amount - check last columns first (most CC exports put amount at end)
+          const lastCol = cells[cells.length - 1];
+
+          if (looksLikeMoney(lastCol) && parseFloat(lastCol.replace(/[$,]/g, '')) !== 0) {
+            // Amount is in last column (credit card format)
+            amount = parseFloat(lastCol.replace(/[$,]/g, '')) || 0;
+            // Description is first non-empty, non-date column
+            for (let i = 1; i < cells.length - 1; i++) {
+              if (cells[i] && cells[i].length > 2 && !looksLikeMoney(cells[i]) && !looksLikeDate(cells[i])) {
+                description = cells[i];
+                break;
+              }
+            }
+          } else if (looksLikeMoney(cells[1])) {
+            // Format: Date, Amount, Description
             amount = parseFloat(cells[1].replace(/[$,]/g, '')) || 0;
-            description = cells[2];
-            balance = cells[3] && /^-?\$?[\d,]+\.?\d*$/.test(cells[3].replace(/[$,]/g, ''))
-              ? parseFloat(cells[3].replace(/[$,]/g, '')) : 0;
+            description = cells[2] || '';
           } else {
             // Format: Date, Description, Amount, [Balance]
-            date = cells[0];
             description = cells[1];
             amount = parseFloat(cells[2].replace(/[$,]/g, '')) || 0;
             balance = parseFloat((cells[3] || '0').replace(/[$,]/g, '')) || 0;
           }
 
-          parsed.push({ date, description, amount, balance });
+          if (date && (description || amount !== 0)) {
+            parsed.push({ date, description, amount, balance });
+          }
         }
       }
 
