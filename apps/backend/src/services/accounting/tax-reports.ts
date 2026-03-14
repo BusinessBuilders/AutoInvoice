@@ -50,15 +50,21 @@ export interface IncomeStatement {
   };
 }
 
+export interface BalanceSheetItem {
+  code: string;
+  name: string;
+  balance: number;
+  source: 'bank_account' | 'transaction_sum';  // Where the balance came from
+}
+
 export interface BalanceSheet {
   period: ReportPeriod;
-  assets: CategoryTotal[];
-  liabilities: CategoryTotal[];
-  equity: CategoryTotal[];
+  assets: BalanceSheetItem[];
+  liabilities: BalanceSheetItem[];
   totals: {
     totalAssets: number;
     totalLiabilities: number;
-    totalEquity: number;
+    totalEquity: number;        // Calculated: Assets - Liabilities
   };
 }
 
@@ -83,42 +89,51 @@ export interface GeneralLedgerReport {
   }>;
 }
 
-// Helper: Sum transactions by tax account
+// Helper: Sum transactions by tax account (using absolute values)
 async function sumByTaxAccount(
   companyId: string,
   startDate: Date,
   endDate: Date,
   accountTypes: string[]
 ): Promise<CategoryTotal[]> {
-  const results = await prisma.bankTransaction.groupBy({
-    by: ['taxAccountId'],
+  // Get all transactions with their tax accounts
+  const transactions = await prisma.bankTransaction.findMany({
     where: {
       companyId,
       date: { gte: startDate, lte: endDate },
       taxAccount: { accountType: { in: accountTypes as any } },
     },
-    _sum: { amount: true },
-    _count: { id: true },
+    include: { taxAccount: true },
   });
 
-  const totals: CategoryTotal[] = [];
+  // Group by taxAccountId and sum absolute values
+  const grouped = new Map<string, { account: any; total: number; count: number }>();
 
-  for (const r of results) {
-    if (!r.taxAccountId) continue;
+  for (const t of transactions) {
+    if (!t.taxAccountId || !t.taxAccount) continue;
 
-    const account = await prisma.taxAccount.findUnique({
-      where: { id: r.taxAccountId },
-    });
-
-    if (account) {
-      totals.push({
-        accountCode: account.code,
-        accountName: account.name,
-        taxTreatment: account.taxTreatment,
-        total: r._sum.amount?.toNumber() || 0,
-        transactionCount: r._count.id,
+    const existing = grouped.get(t.taxAccountId);
+    if (existing) {
+      existing.total += Math.abs(t.amount.toNumber());
+      existing.count += 1;
+    } else {
+      grouped.set(t.taxAccountId, {
+        account: t.taxAccount,
+        total: Math.abs(t.amount.toNumber()),
+        count: 1,
       });
     }
+  }
+
+  const totals: CategoryTotal[] = [];
+  for (const [, data] of grouped) {
+    totals.push({
+      accountCode: data.account.code,
+      accountName: data.account.name,
+      taxTreatment: data.account.taxTreatment,
+      total: data.total,
+      transactionCount: data.count,
+    });
   }
 
   return totals.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
@@ -227,26 +242,87 @@ export async function generateIncomeStatement(
   };
 }
 
+export interface BalanceSheetOptions {
+  excludeCreditCards?: boolean;
+}
+
 /**
  * Generate Balance Sheet
+ *
+ * Shows point-in-time financial position using ACTUAL balances:
+ * - ASSETS: Bank account balances + other assets (vehicles, etc.)
+ * - LIABILITIES: Credit card balances (optional)
+ * - EQUITY: Calculated as Assets - Liabilities
  */
 export async function generateBalanceSheet(
   companyId: string,
-  endDate: Date
+  endDate: Date,
+  options: BalanceSheetOptions = {}
 ): Promise<BalanceSheet> {
-  const assets = await sumByTaxAccount(companyId, new Date('1900-01-01'), endDate, ['ASSET']);
-  const liabilities = await sumByTaxAccount(companyId, new Date('1900-01-01'), endDate, ['LIABILITY']);
-  const equity = await sumByTaxAccount(companyId, new Date('1900-01-01'), endDate, ['EQUITY']);
+  const { excludeCreditCards = false } = options;
+
+  const assets: BalanceSheetItem[] = [];
+  const liabilities: BalanceSheetItem[] = [];
+
+  // 1. Get actual bank account balances (checking accounts = assets)
+  const bankAccounts = await prisma.bankAccount.findMany({
+    where: { companyId },
+  });
+
+  for (const account of bankAccounts) {
+    const balance = account.currentBalance?.toNumber() || 0;
+    if (balance === 0) continue;  // Skip zero-balance accounts
+
+    if (account.accountType === 'checking' || account.accountType === 'savings') {
+      assets.push({
+        code: account.accountNumber || '1010',
+        name: account.name,
+        balance: balance,
+        source: 'bank_account',
+      });
+    } else if (account.accountType === 'credit_card' && !excludeCreditCards) {
+      // Credit cards are liabilities (show as positive liability)
+      liabilities.push({
+        code: account.accountNumber || '2010',
+        name: account.name,
+        balance: Math.abs(balance),
+        source: 'bank_account',
+      });
+    }
+  }
+
+  // 2. Get other assets from transaction sums (vehicles, equipment, etc.)
+  //    These are non-cash assets tracked via expense categorization
+  const otherAssets = await sumByTaxAccount(companyId, new Date('1900-01-01'), endDate, ['ASSET']);
+  for (const asset of otherAssets) {
+    // Skip cash accounts (already from BankAccount) and TRANSFER
+    if (asset.taxTreatment === 'TRANSFER') continue;
+    if (asset.accountCode.startsWith('10')) continue;  // 10xx are cash accounts
+
+    assets.push({
+      code: asset.accountCode,
+      name: asset.accountName,
+      balance: Math.abs(asset.total),
+      source: 'transaction_sum',
+    });
+  }
+
+  // Sort by code
+  assets.sort((a, b) => a.code.localeCompare(b.code));
+  liabilities.sort((a, b) => a.code.localeCompare(b.code));
+
+  const totalAssets = assets.reduce((sum, a) => sum + a.balance, 0);
+  const totalLiabilities = liabilities.reduce((sum, l) => sum + l.balance, 0);
+  const totalEquity = totalAssets - totalLiabilities;
 
   return {
     period: { startDate: new Date('1900-01-01'), endDate },
     assets,
     liabilities,
-    equity,
     totals: {
-      totalAssets: assets.reduce((sum, a) => sum + a.total, 0),
-      totalLiabilities: liabilities.reduce((sum, l) => sum + Math.abs(l.total), 0),
-      totalEquity: equity.reduce((sum, e) => sum + e.total, 0),
+      totalAssets,
+      totalLiabilities,
+      totalEquity,
     },
   };
 }

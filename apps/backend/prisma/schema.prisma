@@ -123,6 +123,7 @@ model Customer {
   leads           Lead[]
   tallyInvoices   TallyInvoice[]
   journalLines    JournalLine[]
+  plowBillings    PlowBilling[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -426,6 +427,56 @@ model PriceOverride {
   updatedAt       DateTime  @updatedAt
 
   @@unique([customerId, serviceId])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PLOW BILLING - Stripe Payment Link Tracking
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model PlowBilling {
+  id              String    @id @default(cuid())
+
+  // Customer
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  // Services billed
+  plowCount       Int       @default(0)
+  plowPrice       Decimal   @default(0)
+  saltCount       Int       @default(0)
+  saltPrice       Decimal   @default(0)
+  totalAmount     Decimal
+
+  // Stripe
+  stripePaymentLinkId   String?
+  stripePaymentLinkUrl  String
+  stripeSessionId       String?   // Filled when customer clicks link
+  stripePaymentIntentId String?   // Filled when payment completes
+
+  // Status
+  status          PlowBillingStatus @default(PENDING)
+  sentAt          DateTime?
+  paidAt          DateTime?
+
+  // Metadata
+  description     String?
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum PlowBillingStatus {
+  PENDING     // Link generated, not sent
+  SENT        // Link texted/sent to customer
+  VIEWED      // Customer clicked link (optional tracking)
+  PAID        // Payment completed
+  EXPIRED     // Link expired without payment
+  CANCELLED   // Manually cancelled
 }
 
 model AIInteraction {
@@ -1454,9 +1505,11 @@ enum TaxAccountType {
   ASSET
   LIABILITY
   EQUITY
+  EQUITY_CONTRA    // Owner draws/distributions - reduces equity
   INCOME
   EXPENSE_COGS
   EXPENSE_OPERATING
+  TRANSFER         // Internal transfers - excluded from reports
 }
 
 enum MatchType {

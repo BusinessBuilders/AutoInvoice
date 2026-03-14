@@ -67,6 +67,7 @@ export const taxReportsRouter = router({
       z.object({
         companyId: z.string(),
         asOfDate: z.string(),
+        excludeCreditCards: z.boolean().optional().default(false),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -78,7 +79,9 @@ export const taxReportsRouter = router({
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Company not found' });
       }
 
-      return generateBalanceSheet(input.companyId, new Date(input.asOfDate));
+      return generateBalanceSheet(input.companyId, new Date(input.asOfDate), {
+        excludeCreditCards: input.excludeCreditCards,
+      });
     }),
 
   // General Ledger - all transactions by account

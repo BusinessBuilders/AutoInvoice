@@ -8,7 +8,7 @@ export default function OutstandingBalances() {
   const { data: customersData, isLoading } = trpc.customer.list.useQuery({});
 
   // Get invoices to calculate outstanding balances
-  const { data: invoicesData } = trpc.invoice.list.useQuery({ limit: 1000 });
+  const { data: invoicesData } = trpc.invoice.list.useQuery({ limit: 100 });
 
   if (isLoading) {
     return (

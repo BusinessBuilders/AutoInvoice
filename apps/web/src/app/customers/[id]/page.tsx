@@ -32,6 +32,9 @@ export default function CustomerDetailPage() {
   const [editedState, setEditedState] = useState('');
   const [editedZipCode, setEditedZipCode] = useState('');
   const [editedNotes, setEditedNotes] = useState('');
+  const [isPlowCustomer, setIsPlowCustomer] = useState(false);
+  const [plowPrice, setPlowPrice] = useState('');
+  const [saltPrice, setSaltPrice] = useState('');
 
   const utils = trpc.useContext();
   const { data: services } = trpc.service.list.useQuery();
@@ -49,6 +52,8 @@ export default function CustomerDetailPage() {
       utils.customer.get.invalidate({ id: customerId });
     },
   });
+
+  const setPlowPriceMutation = trpc.payments.setCustomerPrice.useMutation();
 
   const handleDelete = () => {
     if (confirm(`Are you sure you want to delete ${customer?.name}?`)) {
@@ -69,6 +74,15 @@ export default function CustomerDetailPage() {
       setEditedState(customer.state || '');
       setEditedZipCode(customer.zipCode || '');
       setEditedNotes(customer.notes || '');
+      // Initialize plow customer state
+      const tags = customer.tags || [];
+      const hasPlow = tags.some((t: string) => t.toLowerCase().includes('plow') || t.toLowerCase().includes('snow'));
+      setIsPlowCustomer(hasPlow);
+      // Get existing plow/salt prices from priceOverrides
+      const plowOverride = customer.priceOverrides?.find((o: any) => o.service?.code === 'PLOW');
+      const saltOverride = customer.priceOverrides?.find((o: any) => o.service?.code === 'SALT');
+      setPlowPrice(plowOverride ? parseFloat(plowOverride.price).toString() : '');
+      setSaltPrice(saltOverride ? parseFloat(saltOverride.price).toString() : '');
     }
     setIsEditMode(!isEditMode);
   };
@@ -79,6 +93,15 @@ export default function CustomerDetailPage() {
 
   const handleSaveCustomer = async () => {
     try {
+      // Build tags array - add or remove plow tag
+      let newTags = [...(customer?.tags || [])];
+      const hasPlowTag = newTags.some((t: string) => t.toLowerCase() === 'plow');
+      if (isPlowCustomer && !hasPlowTag) {
+        newTags.push('plow');
+      } else if (!isPlowCustomer && hasPlowTag) {
+        newTags = newTags.filter((t: string) => t.toLowerCase() !== 'plow');
+      }
+
       await updateCustomerMutation.mutateAsync({
         id: customerId,
         name: editedName,
@@ -91,7 +114,26 @@ export default function CustomerDetailPage() {
         state: editedState || undefined,
         zipCode: editedZipCode || undefined,
         notes: editedNotes || undefined,
+        tags: newTags,
       });
+
+      // Save plow/salt prices if set
+      if (isPlowCustomer) {
+        if (plowPrice) {
+          await setPlowPriceMutation.mutateAsync({
+            customerId,
+            serviceCode: 'PLOW',
+            price: parseFloat(plowPrice),
+          });
+        }
+        if (saltPrice) {
+          await setPlowPriceMutation.mutateAsync({
+            customerId,
+            serviceCode: 'SALT',
+            price: parseFloat(saltPrice),
+          });
+        }
+      }
 
       await refetch();
       setIsEditMode(false);
@@ -138,7 +180,14 @@ export default function CustomerDetailPage() {
           </Link>
           <div className="md:flex md:items-center md:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">{customer.name}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-gray-900">{customer.name}</h1>
+                {customer.tags?.some((t: string) => t.toLowerCase().includes('plow') || t.toLowerCase().includes('snow')) && (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                    Plow
+                  </span>
+                )}
+              </div>
               {customer.company && (
                 <p className="mt-1 text-lg text-gray-500">{customer.company}</p>
               )}
@@ -342,6 +391,50 @@ export default function CustomerDetailPage() {
                       className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
                       placeholder="12345"
                     />
+                  </div>
+
+                  {/* Plow Customer Section */}
+                  <div className="border-t pt-4 mt-4">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isPlowCustomer}
+                        onChange={(e) => setIsPlowCustomer(e.target.checked)}
+                        className="w-5 h-5 text-blue-600 rounded"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Plow Customer</span>
+                    </label>
+
+                    {isPlowCustomer && (
+                      <div className="mt-3 ml-8 grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Plow Price</label>
+                          <div className="flex items-center">
+                            <span className="text-gray-500 mr-1">$</span>
+                            <input
+                              type="number"
+                              value={plowPrice}
+                              onChange={(e) => setPlowPrice(e.target.value)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                              placeholder="50"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">Salt Price</label>
+                          <div className="flex items-center">
+                            <span className="text-gray-500 mr-1">$</span>
+                            <input
+                              type="number"
+                              value={saltPrice}
+                              onChange={(e) => setSaltPrice(e.target.value)}
+                              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                              placeholder="30"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

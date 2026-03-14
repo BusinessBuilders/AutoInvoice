@@ -6,6 +6,27 @@ import { trpc } from '@/lib/trpc';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
 
+// CSV Export helper for General Ledger
+const exportToCSV = (data: Array<Record<string, string | number>>, filename: string) => {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]);
+  const csvContent = [
+    headers.join(','),
+    ...data.map(row => headers.map(h => {
+      const val = row[h] ?? '';
+      return typeof val === 'string' && val.includes(',') ? `"${val}"` : val;
+    }).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 // Format currency
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-US', {
@@ -41,6 +62,21 @@ export default function ReportsPage() {
     startDate: '2023-04-01',
     endDate: '2023-12-31',
   });
+
+  // Tax Prep Mode - allows adjusting % claimed for expense categories
+  const [taxPrepMode, setTaxPrepMode] = useState(false);
+  const [taxAdjustments, setTaxAdjustments] = useState<Record<string, number>>({});
+
+  // Get adjustment % for an account (default 100%)
+  const getAdjustment = (accountCode: string) => taxAdjustments[accountCode] ?? 100;
+
+  // Calculate adjusted total for expenses
+  const calculateAdjustedExpenseTotal = (expenses: Array<{ accountCode: string; total: number }>) => {
+    return expenses.reduce((sum, item) => {
+      const pct = getAdjustment(item.accountCode);
+      return sum + (Math.abs(item.total) * pct) / 100;
+    }, 0);
+  };
 
   useEffect(() => {
     requireAuth();
@@ -252,81 +288,167 @@ export default function ReportsPage() {
 
               {/* Income Statement */}
               {reportType === 'income-statement' && incomeStatement && (
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                    Income Statement (P&L)
-                    <span className="text-sm font-normal text-gray-500 ml-4">
-                      {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
-                    </span>
-                  </h2>
+                <div id="income-statement-report">
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">
+                        Income Statement (P&L)
+                        {taxPrepMode && <span className="ml-2 text-sm bg-yellow-100 text-yellow-800 px-2 py-1 rounded">Tax Prep Mode</span>}
+                      </h2>
+                      <span className="text-sm text-gray-500">
+                        {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTaxPrepMode(!taxPrepMode)}
+                        className={`px-3 py-1 text-sm rounded ${taxPrepMode ? 'bg-yellow-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                      >
+                        {taxPrepMode ? 'Exit Tax Prep' : 'Tax Prep Mode'}
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Print / PDF
+                      </button>
+                    </div>
+                  </div>
 
                   <table className="w-full">
+                    {taxPrepMode && (
+                      <thead>
+                        <tr className="text-xs text-gray-500 border-b">
+                          <th className="py-2 px-4 text-left">Account</th>
+                          <th className="py-2 px-4 text-right">Actual</th>
+                          <th className="py-2 px-4 text-center w-24">Claim %</th>
+                          <th className="py-2 px-4 text-right">Adjusted</th>
+                        </tr>
+                      </thead>
+                    )}
                     <tbody>
                       {/* Income */}
                       <tr className="bg-green-50">
-                        <td colSpan={2} className="py-2 px-4 font-bold text-green-700">INCOME</td>
+                        <td colSpan={taxPrepMode ? 4 : 2} className="py-2 px-4 font-bold text-green-700">INCOME</td>
                       </tr>
                       {incomeStatement.income.map((item) => (
                         <tr key={item.accountCode}>
                           <td className="py-1 px-4 text-gray-600">{item.accountCode} - {item.accountName}</td>
                           <td className="py-1 px-4 text-right">{formatCurrency(Math.abs(item.total))}</td>
+                          {taxPrepMode && <td colSpan={2}></td>}
                         </tr>
                       ))}
                       <tr className="border-t font-medium">
                         <td className="py-2 px-4">Gross Receipts</td>
                         <td className="py-2 px-4 text-right">{formatCurrency(incomeStatement.totals.grossReceipts)}</td>
+                        {taxPrepMode && <td colSpan={2}></td>}
                       </tr>
 
                       {/* COGS */}
                       <tr className="bg-orange-50">
-                        <td colSpan={2} className="py-2 px-4 font-bold text-orange-700 mt-4">COST OF GOODS SOLD</td>
+                        <td colSpan={taxPrepMode ? 4 : 2} className="py-2 px-4 font-bold text-orange-700 mt-4">COST OF GOODS SOLD</td>
                       </tr>
                       {incomeStatement.cogs.map((item) => (
                         <tr key={item.accountCode}>
                           <td className="py-1 px-4 text-gray-600">{item.accountCode} - {item.accountName}</td>
                           <td className="py-1 px-4 text-right">{formatCurrency(Math.abs(item.total))}</td>
+                          {taxPrepMode && <td colSpan={2}></td>}
                         </tr>
                       ))}
                       <tr className="border-t font-medium">
                         <td className="py-2 px-4">Total COGS</td>
                         <td className="py-2 px-4 text-right">{formatCurrency(incomeStatement.totals.costOfGoodsSold)}</td>
+                        {taxPrepMode && <td colSpan={2}></td>}
                       </tr>
                       <tr className="bg-blue-50 font-bold">
                         <td className="py-2 px-4">GROSS PROFIT</td>
                         <td className="py-2 px-4 text-right">{formatCurrency(incomeStatement.totals.grossProfit)}</td>
+                        {taxPrepMode && <td colSpan={2}></td>}
                       </tr>
 
-                      {/* Operating Expenses */}
+                      {/* Operating Expenses - with Tax Prep adjustments */}
                       <tr className="bg-red-50">
-                        <td colSpan={2} className="py-2 px-4 font-bold text-red-700 mt-4">OPERATING EXPENSES</td>
+                        <td colSpan={taxPrepMode ? 4 : 2} className="py-2 px-4 font-bold text-red-700 mt-4">OPERATING EXPENSES</td>
                       </tr>
-                      {incomeStatement.expenses.map((item) => (
-                        <tr key={item.accountCode}>
-                          <td className="py-1 px-4 text-gray-600">
-                            {item.accountCode} - {item.accountName}
-                            {item.taxTreatment !== '100%' && (
-                              <span className="text-xs text-gray-400 ml-2">({item.taxTreatment})</span>
+                      {incomeStatement.expenses.map((item) => {
+                        const actualAmount = Math.abs(item.total);
+                        const pct = getAdjustment(item.accountCode);
+                        const adjustedAmount = (actualAmount * pct) / 100;
+                        return (
+                          <tr key={item.accountCode}>
+                            <td className="py-1 px-4 text-gray-600">
+                              {item.accountCode} - {item.accountName}
+                              {!taxPrepMode && item.taxTreatment !== '100%' && (
+                                <span className="text-xs text-gray-400 ml-2">({item.taxTreatment})</span>
+                              )}
+                            </td>
+                            <td className="py-1 px-4 text-right">{formatCurrency(actualAmount)}</td>
+                            {taxPrepMode && (
+                              <>
+                                <td className="py-1 px-4 text-center">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    value={pct}
+                                    onChange={(e) => setTaxAdjustments(prev => ({
+                                      ...prev,
+                                      [item.accountCode]: Math.min(100, Math.max(0, parseInt(e.target.value) || 0))
+                                    }))}
+                                    className="w-16 px-2 py-1 text-center border rounded text-sm"
+                                  />
+                                  <span className="text-xs text-gray-400 ml-1">%</span>
+                                </td>
+                                <td className={`py-1 px-4 text-right ${pct < 100 ? 'text-yellow-600 font-medium' : ''}`}>
+                                  {formatCurrency(adjustedAmount)}
+                                  {pct < 100 && <span className="text-xs ml-1">*</span>}
+                                </td>
+                              </>
                             )}
-                          </td>
-                          <td className="py-1 px-4 text-right">{formatCurrency(Math.abs(item.total))}</td>
-                        </tr>
-                      ))}
+                          </tr>
+                        );
+                      })}
                       <tr className="border-t font-medium">
                         <td className="py-2 px-4">Total Operating Expenses</td>
                         <td className="py-2 px-4 text-right">{formatCurrency(incomeStatement.totals.operatingExpenses)}</td>
+                        {taxPrepMode && (
+                          <>
+                            <td></td>
+                            <td className="py-2 px-4 text-right text-yellow-600 font-bold">
+                              {formatCurrency(calculateAdjustedExpenseTotal(incomeStatement.expenses))}
+                            </td>
+                          </>
+                        )}
                       </tr>
 
                       {/* Net Income */}
-                      <tr className={`font-bold text-lg ${incomeStatement.totals.netIncome >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                        <td className="py-3 px-4">NET INCOME</td>
-                        <td className="py-3 px-4 text-right">{formatCurrency(incomeStatement.totals.netIncome)}</td>
-                      </tr>
+                      {(() => {
+                        const adjustedExpenses = taxPrepMode
+                          ? calculateAdjustedExpenseTotal(incomeStatement.expenses)
+                          : incomeStatement.totals.operatingExpenses;
+                        const adjustedNetIncome = incomeStatement.totals.grossProfit - adjustedExpenses;
+                        return (
+                          <tr className={`font-bold text-lg ${adjustedNetIncome >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                            <td className="py-3 px-4">NET INCOME {taxPrepMode && '(Adjusted)'}</td>
+                            <td className="py-3 px-4 text-right">
+                              {!taxPrepMode && formatCurrency(incomeStatement.totals.netIncome)}
+                              {taxPrepMode && <span className="text-gray-400 line-through">{formatCurrency(incomeStatement.totals.netIncome)}</span>}
+                            </td>
+                            {taxPrepMode && (
+                              <>
+                                <td></td>
+                                <td className="py-3 px-4 text-right">{formatCurrency(adjustedNetIncome)}</td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })()}
 
                       {/* Non-Deductible */}
                       {incomeStatement.nonDeductible.length > 0 && (
                         <>
                           <tr className="bg-gray-100">
-                            <td colSpan={2} className="py-2 px-4 font-bold text-gray-500 mt-4">
+                            <td colSpan={taxPrepMode ? 4 : 2} className="py-2 px-4 font-bold text-gray-500 mt-4">
                               NON-DEDUCTIBLE (Owner Distributions)
                             </td>
                           </tr>
@@ -334,6 +456,7 @@ export default function ReportsPage() {
                             <tr key={item.accountCode} className="text-gray-500">
                               <td className="py-1 px-4">{item.accountCode} - {item.accountName}</td>
                               <td className="py-1 px-4 text-right">{formatCurrency(Math.abs(item.total))}</td>
+                              {taxPrepMode && <td colSpan={2}></td>}
                             </tr>
                           ))}
                           <tr className="border-t text-gray-500">
@@ -341,11 +464,33 @@ export default function ReportsPage() {
                             <td className="py-2 px-4 text-right font-medium">
                               {formatCurrency(incomeStatement.totals.nonDeductibleExpenses)}
                             </td>
+                            {taxPrepMode && <td colSpan={2}></td>}
                           </tr>
                         </>
                       )}
                     </tbody>
                   </table>
+
+                  {/* Tax Prep Notes */}
+                  {taxPrepMode && Object.keys(taxAdjustments).length > 0 && (
+                    <div className="mt-6 p-4 bg-yellow-50 rounded-lg text-sm">
+                      <h4 className="font-bold text-yellow-800 mb-2">Tax Adjustment Notes (for audit trail):</h4>
+                      <ul className="space-y-1">
+                        {incomeStatement.expenses
+                          .filter(item => (taxAdjustments[item.accountCode] ?? 100) < 100)
+                          .map(item => {
+                            const pct = taxAdjustments[item.accountCode];
+                            const actual = Math.abs(item.total);
+                            const adjusted = (actual * pct) / 100;
+                            return (
+                              <li key={item.accountCode} className="text-yellow-700">
+                                <strong>{item.accountName}:</strong> Actual {formatCurrency(actual)} × {pct}% = {formatCurrency(adjusted)} claimed
+                              </li>
+                            );
+                          })}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -425,12 +570,40 @@ export default function ReportsPage() {
               {/* General Ledger */}
               {reportType === 'general-ledger' && generalLedger && (
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                    General Ledger
-                    <span className="text-sm font-normal text-gray-500 ml-4">
-                      {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
-                    </span>
-                  </h2>
+                  <div className="flex justify-between items-start mb-6">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">General Ledger</h2>
+                      <span className="text-sm text-gray-500">
+                        {formatDate(dateRange.startDate)} - {formatDate(dateRange.endDate)}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          // Flatten all transactions for CSV export
+                          const allTransactions = generalLedger.accounts.flatMap(account =>
+                            account.transactions.map(t => ({
+                              Account: `${account.accountCode} - ${account.accountName}`,
+                              Date: new Date(t.date).toLocaleDateString(),
+                              Description: t.description,
+                              Amount: t.amount,
+                              Balance: t.balance,
+                            }))
+                          );
+                          exportToCSV(allTransactions, `general-ledger-${dateRange.startDate}-to-${dateRange.endDate}.csv`);
+                        }}
+                        className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                      >
+                        Export CSV
+                      </button>
+                      <button
+                        onClick={() => window.print()}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Print / PDF
+                      </button>
+                    </div>
+                  </div>
 
                   {generalLedger.accounts.length === 0 ? (
                     <p className="text-gray-500 py-8 text-center">
@@ -503,12 +676,23 @@ export default function ReportsPage() {
                       <h3 className="text-lg font-medium bg-blue-50 py-2 px-4 rounded text-blue-700">ASSETS</h3>
                       <table className="w-full">
                         <tbody>
-                          {balanceSheet.assets.map((item) => (
-                            <tr key={item.accountCode} className="border-b">
-                              <td className="py-2">{item.accountCode} - {item.accountName}</td>
-                              <td className="py-2 text-right">{formatCurrency(item.total)}</td>
+                          {balanceSheet.assets.length === 0 ? (
+                            <tr>
+                              <td colSpan={2} className="py-4 text-center text-gray-500">No assets found</td>
                             </tr>
-                          ))}
+                          ) : (
+                            balanceSheet.assets.map((item) => (
+                              <tr key={item.code} className="border-b">
+                                <td className="py-2">
+                                  {item.code} - {item.name}
+                                  {item.source === 'bank_account' && (
+                                    <span className="ml-2 text-xs text-blue-500">(Bank)</span>
+                                  )}
+                                </td>
+                                <td className="py-2 text-right">{formatCurrency(item.balance)}</td>
+                              </tr>
+                            ))
+                          )}
                           <tr className="font-bold bg-blue-50">
                             <td className="py-2 px-2">Total Assets</td>
                             <td className="py-2 text-right px-2">{formatCurrency(balanceSheet.totals.totalAssets)}</td>
@@ -522,12 +706,18 @@ export default function ReportsPage() {
                       <h3 className="text-lg font-medium bg-red-50 py-2 px-4 rounded text-red-700">LIABILITIES</h3>
                       <table className="w-full mb-4">
                         <tbody>
-                          {balanceSheet.liabilities.map((item) => (
-                            <tr key={item.accountCode} className="border-b">
-                              <td className="py-2">{item.accountCode} - {item.accountName}</td>
-                              <td className="py-2 text-right">{formatCurrency(Math.abs(item.total))}</td>
+                          {balanceSheet.liabilities.length === 0 ? (
+                            <tr>
+                              <td colSpan={2} className="py-4 text-center text-gray-500">No liabilities</td>
                             </tr>
-                          ))}
+                          ) : (
+                            balanceSheet.liabilities.map((item) => (
+                              <tr key={item.code} className="border-b">
+                                <td className="py-2">{item.code} - {item.name}</td>
+                                <td className="py-2 text-right">{formatCurrency(item.balance)}</td>
+                              </tr>
+                            ))
+                          )}
                           <tr className="font-bold bg-red-50">
                             <td className="py-2 px-2">Total Liabilities</td>
                             <td className="py-2 text-right px-2">{formatCurrency(balanceSheet.totals.totalLiabilities)}</td>
@@ -538,15 +728,14 @@ export default function ReportsPage() {
                       <h3 className="text-lg font-medium bg-purple-50 py-2 px-4 rounded text-purple-700">EQUITY</h3>
                       <table className="w-full">
                         <tbody>
-                          {balanceSheet.equity.map((item) => (
-                            <tr key={item.accountCode} className="border-b">
-                              <td className="py-2">{item.accountCode} - {item.accountName}</td>
-                              <td className="py-2 text-right">{formatCurrency(item.total)}</td>
-                            </tr>
-                          ))}
                           <tr className="font-bold bg-purple-50">
-                            <td className="py-2 px-2">Total Equity</td>
+                            <td className="py-2 px-2">Owner&apos;s Equity</td>
                             <td className="py-2 text-right px-2">{formatCurrency(balanceSheet.totals.totalEquity)}</td>
+                          </tr>
+                          <tr className="text-xs text-gray-500">
+                            <td colSpan={2} className="py-1 px-2">
+                              (Calculated: Assets − Liabilities)
+                            </td>
                           </tr>
                         </tbody>
                       </table>

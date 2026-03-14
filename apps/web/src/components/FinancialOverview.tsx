@@ -16,7 +16,7 @@ export default function FinancialOverview() {
 
   // Fetch uncategorized receipts count
   const { data: receiptsData } = trpc.receipt.list.useQuery({
-    limit: 1000,
+    limit: 100,
     offset: 0,
     status: 'all',
   });

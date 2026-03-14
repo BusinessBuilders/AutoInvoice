@@ -27,6 +27,7 @@ import { bankTransactionsRouter } from './bankTransactions';
 import { taxReportsRouter } from './taxReports';
 import { bankAccountsRouter } from './bankAccounts';
 import { vendorsRouter } from './vendors';
+import { paymentsRouter } from './payments';
 
 export const appRouter = router({
   auth: authRouter,
@@ -57,6 +58,7 @@ export const appRouter = router({
   taxReports: taxReportsRouter,
   bankAccounts: bankAccountsRouter,
   vendors: vendorsRouter,
+  payments: paymentsRouter,
 });
 
 export type AppRouter = typeof appRouter;

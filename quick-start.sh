@@ -17,7 +17,7 @@ NC='\033[0m'
 
 # Step 1: Start Docker services
 echo -e "${BLUE}Step 1/5: Starting Docker services...${NC}"
-docker-compose up -d
+docker compose up -d
 echo -e "${GREEN}✅ Docker services started${NC}"
 echo ""
 

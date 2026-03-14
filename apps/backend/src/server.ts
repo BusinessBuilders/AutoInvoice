@@ -10,8 +10,87 @@ import multer from 'multer';
 import path from 'path';
 import { oauthHandlers } from './services/google/oauth';
 import { bot } from './services/telegram/bot';
+import Stripe from 'stripe';
+import { prisma } from './utils/db';
 
 const app = express();
+
+// Initialize Stripe for webhooks
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY)
+  : null;
+
+// Stripe webhook - MUST be before body parsing middleware
+// Stripe requires raw body for signature verification
+app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) {
+    return res.status(500).json({ error: 'Stripe not configured' });
+  }
+
+  const sig = req.headers['stripe-signature'] as string;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event: Stripe.Event;
+
+  try {
+    if (webhookSecret) {
+      // Verify webhook signature
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      // In development, skip signature verification
+      event = JSON.parse(req.body.toString()) as Stripe.Event;
+      logger.warn('⚠️ Stripe webhook signature not verified (no STRIPE_WEBHOOK_SECRET)');
+    }
+  } catch (err: any) {
+    logger.error('Stripe webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        logger.info('Payment completed:', { sessionId: session.id, metadata: session.metadata });
+
+        // Find and update the plow billing record
+        if (session.metadata?.type === 'plow_billing' && session.payment_link) {
+          const billing = await prisma.plowBilling.findFirst({
+            where: { stripePaymentLinkId: session.payment_link as string },
+          });
+
+          if (billing) {
+            await prisma.plowBilling.update({
+              where: { id: billing.id },
+              data: {
+                status: 'PAID',
+                paidAt: new Date(),
+                stripeSessionId: session.id,
+                stripePaymentIntentId: session.payment_intent as string,
+              },
+            });
+            logger.info('PlowBilling marked as PAID:', { billingId: billing.id });
+          }
+        }
+        break;
+      }
+
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        logger.info('PaymentIntent succeeded:', { id: paymentIntent.id });
+        break;
+      }
+
+      default:
+        logger.info('Unhandled Stripe event:', { type: event.type });
+    }
+
+    res.json({ received: true });
+  } catch (err: any) {
+    logger.error('Error processing Stripe webhook:', err);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
 
 // Security middleware
 app.use(helmet());

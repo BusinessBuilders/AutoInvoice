@@ -3,6 +3,7 @@ version: '3.8'
 services:
   postgres:
     image: ankane/pgvector:latest  # PostgreSQL with pgvector extension for AI features
+    restart: unless-stopped
     environment:
       POSTGRES_USER: invoice_user
       POSTGRES_PASSWORD: invoice_dev_password
@@ -19,6 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:

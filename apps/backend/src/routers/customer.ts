@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, protectedProcedure } from '../trpc';
+import { router, protectedProcedure, publicProcedure } from '../trpc';
 import { generateCustomerEmbedding } from '../services/embeddings';
 import { Prisma } from '@prisma/client';
 
@@ -189,4 +189,34 @@ export const customerRouter = router({
         take: 10,
       });
     }),
+
+  // Public endpoint for plow route - no auth required
+  getPlowRoute: publicProcedure.query(async ({ ctx }) => {
+    const customers = await ctx.prisma.customer.findMany({
+      where: {
+        OR: [
+          { tags: { hasSome: ['plow', 'snow', 'Plow', 'Snow'] } },
+          { notes: { contains: 'plow', mode: 'insensitive' } },
+          { notes: { contains: 'snow', mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        addressLine1: true,
+        city: true,
+        state: true,
+      },
+    });
+
+    return customers
+      .filter((c) => c.addressLine1) // Only return customers with addresses
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        address: c.addressLine1 || '',
+        city: c.city || '',
+        state: c.state || 'MA',
+      }));
+  }),
 });

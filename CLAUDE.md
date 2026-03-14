@@ -355,6 +355,120 @@ cd apps/web && NODE_ENV=production npm run start &
 - Check WireGuard: `ssh mlb-vps "wg show"`
 - Reload nginx: `ssh mlb-vps "sudo nginx -t && sudo systemctl reload nginx"`
 
+## Active Development: Credit Card & Multi-Account Integration
+
+**Status Document**: `CREDIT_CARD_INTEGRATION_STATUS.md`
+**Full Plan**: `~/.claude/plans/bubbly-skipping-hanrahan.md`
+
+### What We're Building
+
+Following QuickBooks-style workflow where bank/credit card accounts are unified with Chart of Accounts:
+
+1. **BankAccount ↔ Account link** - BankAccount now has `linkedAccountId` to tie to Chart of Accounts
+2. **Auto-creation** - Creating a credit card auto-creates a LIABILITY account
+3. **PDF Import** - Import bank/credit card statements with auto-account detection
+
+### Key Files for This Feature
+
+| File | Purpose |
+|------|---------|
+| `routers/bankAccounts.ts` | CRUD for bank accounts with auto-link logic |
+| `routers/bankTransactions.ts` | Import transactions, auto-create accounts |
+| `services/accounting/pdf-parser.ts` | PDF text extraction using pdf-parse v2.x |
+| `app/accounting/import/page.tsx` | Statement import UI |
+| `app/accounting/general-ledger/page.tsx` | Transaction view with account filter |
+
+### Architecture: Two Tracks Unified
+
+```
+Before (disconnected):
+  Account → JournalEntry → Financial Reports
+  BankAccount → BankTransaction → Tax Reports
+
+After (linked):
+  BankAccount.linkedAccountId → Account
+  - Credit cards → LIABILITY (2100)
+  - Checking → ASSET (1010)
+  - Both systems stay in sync
+```
+
+### Next Steps
+
+See `CREDIT_CARD_INTEGRATION_STATUS.md` for current phase and remaining tasks.
+
+---
+
+## Completed: Vendor & Split Transaction System
+
+### Overview
+
+Vendors track WHO you paid (Amazon, Shell, Home Depot) separate from WHAT you bought (expense category). This enables:
+- Auto-detecting vendors from bank transaction descriptions
+- Splitting multi-category purchases (e.g., Amazon order → Office Supplies + Hardware + Owner Draw)
+- Vendor-based reporting and filtering
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `routers/vendors.ts` | CRUD + pattern matching (`matchDescription`, `bulkMatch`, `testPatterns`) |
+| `routers/bankTransactions.ts` | Split mutations (`splitTransaction`, `unsplitTransaction`) |
+| `app/accounting/vendors/page.tsx` | Vendor management UI with tag-style pattern editor |
+| `app/accounting/general-ledger/page.tsx` | Vendor column, filter, split modal |
+| `app/accounting/income/page.tsx` | Income verification page |
+
+### Database Schema
+
+```prisma
+model Vendor {
+  id                    String    @id @default(cuid())
+  companyId             String
+  name                  String                // "Amazon", "Shell"
+  matchPatterns         String[]              // ["AMAZON", "AMZN"] - auto-detect patterns
+  defaultTaxAccountId   String?               // Default category for single-category vendors
+  requiresSplit         Boolean   @default(false)  // Flag vendors that usually need splitting
+  isActive              Boolean   @default(true)
+  @@unique([companyId, name])
+}
+
+// Added to BankTransaction:
+vendorId        String?           // Matched vendor
+parentId        String?           // If this is a split child
+isSplit         Boolean           // True if this is a split parent
+splitIndex      Int?              // Order within split group
+```
+
+### Split Transaction Invariant
+
+**CRITICAL**: `SUM(splits.amount) === parent.amount`
+
+The API enforces this - you cannot create splits that don't add up to the original transaction amount.
+
+### Income/Expense Stats (Category-Based)
+
+**Fixed**: Stats now use `TaxAccountType` instead of amount sign:
+
+```typescript
+// CORRECT (what we do now):
+Income = SUM where taxAccount.accountType = 'INCOME'
+Expenses = SUM where taxAccount.accountType IN ('EXPENSE_COGS', 'EXPENSE_OPERATING')
+
+// WRONG (old method):
+Income = SUM(amount > 0)    // Treated all deposits as income
+Expenses = SUM(amount < 0)  // Treated all withdrawals as expenses
+```
+
+This means:
+- Credit card payments from checking → Excluded (ASSET/LIABILITY transfer)
+- Refunds → Only income if categorized to INCOME account
+- Uncategorized transactions → Not counted until properly categorized
+
+### Verification
+
+Visit `/accounting/income` to see exactly which transactions count as income. If the list is empty, you need INCOME-type tax accounts.
+
+---
+
 ## Common Gotchas
 
 1. **Prisma Client**: Run `npm run generate` after schema changes or weird type errors appear

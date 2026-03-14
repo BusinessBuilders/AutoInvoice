@@ -31,7 +31,7 @@ ChartJS.register(
   Legend
 );
 
-type DatePreset = 'this-month' | 'last-month' | 'this-quarter' | 'this-year' | 'custom';
+type DatePreset = 'this-month' | 'last-month' | 'this-quarter' | 'this-year' | '2024' | '2025' | 'custom';
 
 function getDateRangeFromPreset(preset: DatePreset): [Date, Date] {
   const now = new Date();
@@ -63,6 +63,18 @@ function getDateRangeFromPreset(preset: DatePreset): [Date, Date] {
       start.setMonth(0);
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case '2024':
+      start.setFullYear(2024, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      end.setFullYear(2024, 11, 31);
+      end.setHours(23, 59, 59, 999);
+      break;
+    case '2025':
+      start.setFullYear(2025, 0, 1);
+      start.setHours(0, 0, 0, 0);
+      end.setFullYear(2025, 11, 31);
       end.setHours(23, 59, 59, 999);
       break;
     case 'custom':
@@ -244,8 +256,8 @@ export default function ProfitAndLossPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Date Range
               </label>
-              <div className="flex gap-2">
-                {(['this-month', 'last-month', 'this-quarter', 'this-year', 'custom'] as const).map(
+              <div className="flex gap-2 flex-wrap">
+                {(['this-month', 'last-month', 'this-quarter', 'this-year', '2024', '2025', 'custom'] as const).map(
                   (p) => (
                     <button
                       key={p}
@@ -260,6 +272,8 @@ export default function ProfitAndLossPage() {
                       {p === 'last-month' && 'Last Month'}
                       {p === 'this-quarter' && 'This Quarter'}
                       {p === 'this-year' && 'This Year'}
+                      {p === '2024' && '2024'}
+                      {p === '2025' && '2025'}
                       {p === 'custom' && 'Custom'}
                     </button>
                   )
