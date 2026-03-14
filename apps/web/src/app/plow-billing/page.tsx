@@ -274,6 +274,12 @@ export default function PlowBillingPage() {
                 Refresh
               </button>
               <Link
+                href="/plow-billing/history"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              >
+                Billing History
+              </Link>
+              <Link
                 href="/plow-route"
                 className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
               >

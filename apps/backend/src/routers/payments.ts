@@ -277,6 +277,89 @@ export const paymentsRouter = router({
       return { success: true, status: billing.status };
     }),
 
+  // Sync billing statuses from Stripe (manual check for payment completion)
+  syncBillingStatuses: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const stripeClient = getStripe();
+
+      // Get all non-terminal billings (PENDING or SENT)
+      const activeBillings = await ctx.prisma.plowBilling.findMany({
+        where: {
+          status: { in: ['PENDING', 'SENT'] },
+          stripePaymentLinkId: { not: null },
+        },
+      });
+
+      let updatedCount = 0;
+
+      for (const billing of activeBillings) {
+        try {
+          // Check Stripe for checkout sessions created via this payment link
+          const sessions = await stripeClient.checkout.sessions.list({
+            payment_link: billing.stripePaymentLinkId!,
+            limit: 1,
+          });
+
+          const completedSession = sessions.data.find(
+            (s) => s.payment_status === 'paid'
+          );
+
+          if (completedSession) {
+            await ctx.prisma.plowBilling.update({
+              where: { id: billing.id },
+              data: {
+                status: 'PAID',
+                paidAt: new Date(completedSession.created * 1000),
+                stripeSessionId: completedSession.id,
+                stripePaymentIntentId: completedSession.payment_intent as string,
+              },
+            });
+            updatedCount++;
+          }
+        } catch (err) {
+          // Skip individual billing errors, continue checking others
+        }
+      }
+
+      return { checked: activeBillings.length, updated: updatedCount };
+    }),
+
+  // Cancel a billing (deactivate the Stripe payment link)
+  cancelBilling: protectedProcedure
+    .input(z.object({ billingId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const billing = await ctx.prisma.plowBilling.findUnique({
+        where: { id: input.billingId },
+      });
+
+      if (!billing) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Billing not found' });
+      }
+
+      if (billing.status === 'PAID') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot cancel a paid billing' });
+      }
+
+      // Deactivate the Stripe payment link
+      if (billing.stripePaymentLinkId) {
+        try {
+          const stripeClient = getStripe();
+          await stripeClient.paymentLinks.update(billing.stripePaymentLinkId, {
+            active: false,
+          });
+        } catch (err) {
+          // Continue even if Stripe deactivation fails
+        }
+      }
+
+      await ctx.prisma.plowBilling.update({
+        where: { id: input.billingId },
+        data: { status: 'CANCELLED' },
+      });
+
+      return { success: true };
+    }),
+
   // Get payment links history
   getPaymentLinks: protectedProcedure
     .input(
@@ -284,7 +367,7 @@ export const paymentsRouter = router({
         limit: z.number().min(1).max(100).default(20),
       })
     )
-    .query(async ({ ctx, input }) => {
+    .query(async ({ input }) => {
       const stripeClient = getStripe();
 
       const paymentLinks = await stripeClient.paymentLinks.list({
