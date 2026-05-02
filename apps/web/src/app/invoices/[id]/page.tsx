@@ -40,11 +40,18 @@ export default function InvoiceDetailPage() {
   const [editedCustomerState, setEditedCustomerState] = useState('');
   const [editedCustomerZipCode, setEditedCustomerZipCode] = useState('');
   const [serviceSearchTerm, setServiceSearchTerm] = useState('');
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
   const { data: invoice, isLoading, refetch } = trpc.invoice.get.useQuery({ id: invoiceId });
   
-  // **Add services query**
   const { data: servicesData } = trpc.service.list.useQuery();
+
+  const { data: customerSearchResults } = trpc.customer.list.useQuery(
+    { search: customerSearchTerm, limit: 8 },
+    { enabled: customerSearchTerm.length > 1 }
+  );
   
   // Filter and group services
   const filteredServices = servicesData?.filter((s: any) =>
@@ -151,11 +158,32 @@ export default function InvoiceDetailPage() {
   };
 
   const handleEditToggle = () => {
+    setSelectedCustomerId(null);
+    setCustomerSearchTerm('');
+    setShowCustomerDropdown(false);
     setIsEditMode(!isEditMode);
   };
 
   const handleCancelEdit = () => {
+    setSelectedCustomerId(null);
+    setCustomerSearchTerm('');
+    setShowCustomerDropdown(false);
     setIsEditMode(false);
+  };
+
+  const handleSelectExistingCustomer = (customer: any) => {
+    setSelectedCustomerId(customer.id);
+    setCustomerSearchTerm('');
+    setShowCustomerDropdown(false);
+    setEditedCustomerName(customer.name || '');
+    setEditedCustomerEmail(customer.email || '');
+    setEditedCustomerPhone(customer.phone || '');
+    setEditedCustomerCompany(customer.company || '');
+    setEditedCustomerAddressLine1(customer.addressLine1 || '');
+    setEditedCustomerAddressLine2(customer.addressLine2 || '');
+    setEditedCustomerCity(customer.city || '');
+    setEditedCustomerState(customer.state || '');
+    setEditedCustomerZipCode(customer.zipCode || '');
   };
 
   const handleLineItemChange = (index: number, field: keyof EditableLineItem, value: any) => {
@@ -220,32 +248,45 @@ export default function InvoiceDetailPage() {
 
   const handleSaveInvoice = async () => {
     try {
-      // Update customer information if changed
-      if (invoice?.customer) {
-        await updateCustomerMutation.mutateAsync({
-          id: invoice.customer.id,
-          name: editedCustomerName,
-          email: editedCustomerEmail || undefined,
-          phone: editedCustomerPhone || undefined,
-          company: editedCustomerCompany || undefined,
-          addressLine1: editedCustomerAddressLine1 || undefined,
-          addressLine2: editedCustomerAddressLine2 || undefined,
-          city: editedCustomerCity || undefined,
-          state: editedCustomerState || undefined,
-          zipCode: editedCustomerZipCode || undefined,
+      if (selectedCustomerId) {
+        // Reassigning to a different existing customer — update invoice customerId only
+        await updateInvoiceMutation.mutateAsync({
+          id: invoiceId,
+          customerId: selectedCustomerId,
+          lineItems: editedLineItems,
+          notes: editedNotes,
+          serviceDate: new Date(editedServiceDate),
+          dueDate: new Date(editedDueDate),
+          paymentTerms: editedPaymentTerms,
+          serviceAddress: editedServiceAddress || undefined,
+        });
+      } else {
+        // Editing the existing customer's info in-place
+        if (invoice?.customer) {
+          await updateCustomerMutation.mutateAsync({
+            id: invoice.customer.id,
+            name: editedCustomerName,
+            email: editedCustomerEmail || undefined,
+            phone: editedCustomerPhone || undefined,
+            company: editedCustomerCompany || undefined,
+            addressLine1: editedCustomerAddressLine1 || undefined,
+            addressLine2: editedCustomerAddressLine2 || undefined,
+            city: editedCustomerCity || undefined,
+            state: editedCustomerState || undefined,
+            zipCode: editedCustomerZipCode || undefined,
+          });
+        }
+
+        await updateInvoiceMutation.mutateAsync({
+          id: invoiceId,
+          lineItems: editedLineItems,
+          notes: editedNotes,
+          serviceDate: new Date(editedServiceDate),
+          dueDate: new Date(editedDueDate),
+          paymentTerms: editedPaymentTerms,
+          serviceAddress: editedServiceAddress || undefined,
         });
       }
-
-      // Update invoice
-      await updateInvoiceMutation.mutateAsync({
-        id: invoiceId,
-        lineItems: editedLineItems,
-        notes: editedNotes,
-        serviceDate: new Date(editedServiceDate),
-        dueDate: new Date(editedDueDate),
-        paymentTerms: editedPaymentTerms,
-        serviceAddress: editedServiceAddress || undefined,
-      });
 
       await refetch();
       setIsEditMode(false);
@@ -427,6 +468,66 @@ export default function InvoiceDetailPage() {
                   )
                 ) : (
                   <div className="space-y-3">
+                    {/* Customer search / switch */}
+                    <div className="relative">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        Switch to existing customer
+                      </label>
+                      <input
+                        type="text"
+                        value={customerSearchTerm}
+                        onChange={(e) => {
+                          setCustomerSearchTerm(e.target.value);
+                          setShowCustomerDropdown(true);
+                          if (!e.target.value) setSelectedCustomerId(null);
+                        }}
+                        onFocus={() => setShowCustomerDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 150)}
+                        className="block w-full rounded-md border-blue-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-3"
+                        placeholder="Search by name, email or phone..."
+                      />
+                      {showCustomerDropdown && customerSearchResults?.customers && customerSearchResults.customers.length > 0 && (
+                        <ul className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {customerSearchResults.customers.map((c: any) => (
+                            <li key={c.id}>
+                              <button
+                                type="button"
+                                onMouseDown={() => handleSelectExistingCustomer(c)}
+                                className="w-full text-left px-3 py-2 hover:bg-blue-50 text-sm"
+                              >
+                                <span className="font-medium text-gray-900">{c.name}</span>
+                                {c.company && <span className="text-gray-500 ml-1">· {c.company}</span>}
+                                {c.email && <span className="block text-xs text-gray-400">{c.email}</span>}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {selectedCustomerId && selectedCustomerId !== invoice?.customerId && (
+                        <p className="mt-1 text-xs text-blue-600 font-medium">
+                          Switching bill-to: {editedCustomerName}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCustomerId(null);
+                              setEditedCustomerName(invoice?.customer?.name || '');
+                              setEditedCustomerEmail(invoice?.customer?.email || '');
+                              setEditedCustomerPhone(invoice?.customer?.phone || '');
+                              setEditedCustomerCompany(invoice?.customer?.company || '');
+                              setEditedCustomerAddressLine1(invoice?.customer?.addressLine1 || '');
+                              setEditedCustomerAddressLine2(invoice?.customer?.addressLine2 || '');
+                              setEditedCustomerCity(invoice?.customer?.city || '');
+                              setEditedCustomerState(invoice?.customer?.state || '');
+                              setEditedCustomerZipCode(invoice?.customer?.zipCode || '');
+                            }}
+                            className="ml-2 text-gray-400 hover:text-gray-600"
+                          >
+                            ✕ Cancel
+                          </button>
+                        </p>
+                      )}
+                    </div>
+
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">Name *</label>
                       <input
