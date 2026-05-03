@@ -162,6 +162,16 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
     font: boldFont,
   });
 
+  if (invoice.customer.company) {
+    currentY -= 15;
+    page.drawText(invoice.customer.company, {
+      x: 50,
+      y: currentY,
+      size: 10,
+      font: regularFont,
+    });
+  }
+
   if (invoice.customer.email) {
     currentY -= 15;
     page.drawText(invoice.customer.email, {
@@ -191,6 +201,16 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
       font: regularFont,
     });
 
+    if (invoice.customer.addressLine2) {
+      currentY -= 15;
+      page.drawText(invoice.customer.addressLine2, {
+        x: 50,
+        y: currentY,
+        size: 10,
+        font: regularFont,
+      });
+    }
+
     if (invoice.customer.city && invoice.customer.state) {
       currentY -= 15;
       page.drawText(`${invoice.customer.city}, ${invoice.customer.state} ${invoice.customer.zipCode || ''}`, {
@@ -202,6 +222,28 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
     }
   }
 
+  if (invoice.serviceAddress) {
+    currentY -= 20;
+    page.drawText('SERVICE ADDRESS:', {
+      x: 50,
+      y: currentY,
+      size: 9,
+      font: boldFont,
+      color: rgb(0.4, 0.4, 0.4),
+    });
+    currentY -= 14;
+    const serviceAddressLines = wrapText(invoice.serviceAddress, 240, regularFont, 10);
+    serviceAddressLines.forEach((line: string) => {
+      page.drawText(line, {
+        x: 50,
+        y: currentY,
+        size: 10,
+        font: regularFont,
+      });
+      currentY -= 14;
+    });
+  }
+
   // Right side - Dates
   let rightY = height - 220;
 
@@ -209,6 +251,7 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
     { label: 'Invoice Date:', value: invoice.issueDate.toLocaleDateString() },
     { label: 'Service Date:', value: invoice.serviceDate.toLocaleDateString() },
     { label: 'Due Date:', value: invoice.dueDate.toLocaleDateString() },
+    ...(invoice.paymentTerms ? [{ label: 'Terms:', value: invoice.paymentTerms }] : []),
   ];
 
   dateInfo.forEach(({ label, value }) => {
