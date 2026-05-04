@@ -341,7 +341,7 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
       font: regularFont,
     });
 
-    page.drawText(`$${parseFloat(item.rate).toFixed(2)}`, {
+    page.drawText(`$${formatRate(parseFloat(item.rate))}`, {
       x: 420,
       y: currentY - 12,
       size: 10,
@@ -570,6 +570,14 @@ async function generateStandardTemplate(invoice: any, options: InvoicePdfOptions
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // HELPER FUNCTIONS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function formatRate(value: number): string {
+  // Preserve sub-cent precision (e.g. $0.095) — toFixed(2) on 0.095 gives "0.10"
+  // due to IEEE 754 float representation, so we check up to 4 decimal places.
+  const s = value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  const decimals = s.includes('.') ? s.split('.')[1].length : 0;
+  return decimals >= 3 ? s : value.toFixed(2);
+}
 
 function getCompanyInfo(): CompanyInfo {
   return {
