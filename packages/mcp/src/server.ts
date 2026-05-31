@@ -47,6 +47,10 @@ import { getPulseHandler, toolSpec as getPulseSpec } from "./tools/get_pulse.js"
 TOOLS.push(getPulseSpec);
 HANDLERS["get_pulse"] = getPulseHandler;
 
+import { getCompanyCashflowHandler, toolSpec as getCompanyCashflowSpec } from "./tools/get_company_cashflow.js";
+TOOLS.push(getCompanyCashflowSpec);
+HANDLERS["get_company_cashflow"] = getCompanyCashflowHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
