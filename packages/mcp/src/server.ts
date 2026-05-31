@@ -43,6 +43,10 @@ import { listCompaniesHandler, toolSpec as listCompaniesSpec } from "./tools/lis
 TOOLS.push(listCompaniesSpec);
 HANDLERS["list_companies"] = listCompaniesHandler;
 
+import { getPulseHandler, toolSpec as getPulseSpec } from "./tools/get_pulse.js";
+TOOLS.push(getPulseSpec);
+HANDLERS["get_pulse"] = getPulseHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
