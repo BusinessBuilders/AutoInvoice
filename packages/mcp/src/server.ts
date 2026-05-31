@@ -55,6 +55,10 @@ import { getSuperNovaBurnHandler, toolSpec as getSuperNovaBurnSpec } from "./too
 TOOLS.push(getSuperNovaBurnSpec);
 HANDLERS["get_super_nova_burn"] = getSuperNovaBurnHandler;
 
+import { getDsoHandler, toolSpec as getDsoSpec } from "./tools/get_dso.js";
+TOOLS.push(getDsoSpec);
+HANDLERS["get_dso"] = getDsoHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
