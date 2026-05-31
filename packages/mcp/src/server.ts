@@ -63,6 +63,10 @@ import { projectCashHandler, toolSpec as projectCashSpec } from "./tools/project
 TOOLS.push(projectCashSpec);
 HANDLERS["project_cash"] = projectCashHandler;
 
+import { markReconciliationHandler, toolSpec as markReconciliationSpec } from "./tools/mark_reconciliation.js";
+TOOLS.push(markReconciliationSpec);
+HANDLERS["mark_reconciliation"] = markReconciliationHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
