@@ -1279,6 +1279,7 @@ model Company {
   categorizationRules CategorizationRule[]
   bankTransactions BankTransaction[]
   vendors         Vendor[]
+  reconciliationLogs ReconciliationLog[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -1517,4 +1518,24 @@ enum MatchType {
   STARTS_WITH
   EXACT
   REGEX
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VISION WEALTH OS - RECONCILIATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model ReconciliationLog {
+  id            String   @id @default(cuid())
+  companyId     String
+  throughDate   DateTime @db.Date
+  source        String   // 'manual' | 'statement_match'
+  writtenBy     String
+  writtenAt     DateTime @default(now()) @db.Timestamptz(6)
+  note          String?
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, throughDate])
+  @@index([companyId, throughDate(sort: Desc)])
+  @@map("reconciliation_log")
 }
