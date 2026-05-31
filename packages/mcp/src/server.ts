@@ -6,8 +6,8 @@ import { startHttp } from "./transport/http.js";
 import { disconnect } from "./db.js";
 import { intoMcpError } from "./errors.js";
 
-const VERSION = "0.1.0";
-export const SOURCE_TAG = `autoinvoice-mcp@${VERSION}`;
+import { VERSION, SOURCE_TAG } from "./constants.js";
+export { SOURCE_TAG };
 
 const server = new Server(
   { name: "autoinvoice-mcp", version: VERSION },
@@ -37,6 +37,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 export { server, TOOLS, HANDLERS };
+
+// Tool registrations
+import { listCompaniesHandler, toolSpec as listCompaniesSpec } from "./tools/list_companies.js";
+TOOLS.push(listCompaniesSpec);
+HANDLERS["list_companies"] = listCompaniesHandler;
 
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
