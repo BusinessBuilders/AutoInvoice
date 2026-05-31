@@ -59,6 +59,10 @@ import { getDsoHandler, toolSpec as getDsoSpec } from "./tools/get_dso.js";
 TOOLS.push(getDsoSpec);
 HANDLERS["get_dso"] = getDsoHandler;
 
+import { projectCashHandler, toolSpec as projectCashSpec } from "./tools/project_cash.js";
+TOOLS.push(projectCashSpec);
+HANDLERS["project_cash"] = projectCashHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
