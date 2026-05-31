@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { ListToolsRequestSchema, CallToolRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { startStdio } from "./transport/stdio.js";
 import { startHttp } from "./transport/http.js";
 import { disconnect } from "./db.js";
@@ -37,6 +37,34 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 export { server, TOOLS, HANDLERS };
+
+// Resource registrations
+import { resourceSpec as pulseResourceSpec, readPulseCurrent } from "./resources/pulse_current.js";
+import { resourceSpec as companiesResourceSpec, readCompanies } from "./resources/companies.js";
+
+const RESOURCES = [pulseResourceSpec, companiesResourceSpec];
+
+server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: RESOURCES }));
+
+server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  const uri = req.params.uri;
+  let content: string;
+
+  switch (uri) {
+    case "autoinvoice://pulse/current":
+      content = await readPulseCurrent();
+      break;
+    case "autoinvoice://companies":
+      content = await readCompanies();
+      break;
+    default:
+      throw new Error(`Unknown resource: ${uri}`);
+  }
+
+  return {
+    contents: [{ uri, mimeType: "application/json", text: content }],
+  };
+});
 
 // Tool registrations
 import { listCompaniesHandler, toolSpec as listCompaniesSpec } from "./tools/list_companies.js";
