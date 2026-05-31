@@ -51,6 +51,10 @@ import { getCompanyCashflowHandler, toolSpec as getCompanyCashflowSpec } from ".
 TOOLS.push(getCompanyCashflowSpec);
 HANDLERS["get_company_cashflow"] = getCompanyCashflowHandler;
 
+import { getSuperNovaBurnHandler, toolSpec as getSuperNovaBurnSpec } from "./tools/get_super_nova_burn.js";
+TOOLS.push(getSuperNovaBurnSpec);
+HANDLERS["get_super_nova_burn"] = getSuperNovaBurnHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 
