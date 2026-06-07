@@ -4,11 +4,20 @@ import http from "node:http";
 
 const HOST = process.env.AUTOINVOICE_MCP_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.AUTOINVOICE_MCP_PORT ?? "7892");
+const EXPECTED_TOKEN = process.env.AUTOINVOICE_MCP_TOKEN;
 
 export async function startHttp(server: Server): Promise<http.Server> {
   let activeTransport: SSEServerTransport | null = null;
 
   const httpServer = http.createServer(async (req, res) => {
+    if (EXPECTED_TOKEN) {
+      const auth = req.headers.authorization;
+      if (!auth || auth !== `Bearer ${EXPECTED_TOKEN}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Unauthorized");
+        return;
+      }
+    }
+
     if (req.method === "GET" && req.url === "/sse") {
       activeTransport = new SSEServerTransport("/messages", res);
       await server.connect(activeTransport);
