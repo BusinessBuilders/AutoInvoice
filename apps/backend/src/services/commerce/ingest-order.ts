@@ -83,7 +83,9 @@ const EVENT_STATUS: Record<OrderPayload['event'], OrderStatus> = {
 async function matchOrCreateCustomer(
   userId: string,
   companyId: string,
-  customer: NonNullable<OrderPayload['order']['customer']> | undefined
+  customer: NonNullable<OrderPayload['order']['customer']> | undefined,
+  attribution?: OrderPayload['order']['attribution'],
+  placedAt?: Date
 ): Promise<string | null> {
   if (!customer || (!customer.email && !customer.phone)) return null;
   if (customer.email) {
@@ -106,6 +108,10 @@ async function matchOrCreateCustomer(
       phone: customer.phone,
       primaryCompanyId: companyId,
       tags: ['online-order'],
+      // first-touch attribution snapshot (spec §3.8): set at creation, never overwritten
+      acquisitionSource: attribution?.utm_source ?? 'online-order',
+      acquisitionCampaign: attribution?.utm_campaign ?? null,
+      firstTouchAt: placedAt ?? new Date(),
     },
   });
   return created.id;
@@ -199,7 +205,7 @@ export async function ingestOrder(
 
   const customerId =
     existing?.customerId ??
-    (await matchOrCreateCustomer(source.userId, source.companyId, o.customer));
+    (await matchOrCreateCustomer(source.userId, source.companyId, o.customer, o.attribution, o.placed_at));
 
   const targetStatus = EVENT_STATUS[parsed.event];
 

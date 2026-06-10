@@ -55,6 +55,7 @@ model User {
   orders          Order[]
   ingestSources   IngestSource[]
   subscriptions   Subscription[]
+  adSpends        AdSpend[]
 }
 
 model RefreshToken {
@@ -721,6 +722,15 @@ model Lead {
 
   @@index([companyId])
   subscriptions   Subscription[]
+
+  // Business OS attribution (spec §3.8): UTM finer-grained than `source`
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+  landingPage     String?
+  referrer        String?
 }
 
 model Reminder {
@@ -1363,6 +1373,7 @@ model Company {
   orders           Order[]
   ingestSources    IngestSource[]
   subscriptions    Subscription[]
+  adSpends         AdSpend[]
 }
 
 model TaxAccount {
@@ -1962,4 +1973,27 @@ model Subscription {
   @@index([companyId, status])
   @@index([currentPeriodEnd])
   @@index([customerId])
+}
+
+// ============ Business OS (Phase 5): marketing attribution ============
+
+// Daily ad spend per channel/campaign (spec §3.8): the denominator for CAC
+// and ROAS. channel matches utmSource values ("facebook", "google", ...).
+model AdSpend {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  date        DateTime @db.Date
+  channel     String
+  campaign    String   @default("") // "" = unattributed-to-campaign spend
+  spend       Decimal
+  clicks      Int?
+  impressions Int?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([companyId, date, channel, campaign])
+  @@index([companyId, date])
 }

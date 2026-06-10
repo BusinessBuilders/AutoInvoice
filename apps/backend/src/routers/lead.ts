@@ -20,6 +20,15 @@ export const leadRouter = router({
         estimatedArea: z.number().optional(),
         source: z.string().default('manual'),
         priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
+        companyId: z.string().optional(),
+        // Business OS attribution (spec §3.8)
+        utmSource: z.string().optional(),
+        utmMedium: z.string().optional(),
+        utmCampaign: z.string().optional(),
+        utmTerm: z.string().optional(),
+        utmContent: z.string().optional(),
+        landingPage: z.string().optional(),
+        referrer: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -355,6 +364,11 @@ Be friendly but not pushy. Give them an easy out if they're not interested.`;
           email: input.additionalInfo?.email || lead.email,
           notes: input.additionalInfo?.notes,
           tags: ['from-lead'],
+          primaryCompanyId: lead.companyId,
+          // first-touch attribution snapshot (spec §3.8)
+          acquisitionSource: lead.utmSource ?? lead.source,
+          acquisitionCampaign: lead.utmCampaign,
+          firstTouchAt: lead.createdAt,
         },
       });
 
@@ -514,6 +528,10 @@ Be friendly but not pushy. Give them an easy out if they're not interested.`;
             email: lead.email,
             primaryCompanyId: input.companyId,
             tags: ['from-lead', 'subscription'],
+            // first-touch attribution snapshot (spec §3.8)
+            acquisitionSource: lead.utmSource ?? lead.source,
+            acquisitionCampaign: lead.utmCampaign,
+            firstTouchAt: lead.createdAt,
           },
         });
         customerId = customer.id;

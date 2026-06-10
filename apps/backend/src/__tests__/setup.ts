@@ -31,6 +31,7 @@ beforeEach(async () => {
   // Business OS tables (optional chaining: models exist once Phase 1 schema lands)
   await (prisma as any).revenueEvent?.deleteMany?.();
   await (prisma as any).activity?.deleteMany?.();
+  await (prisma as any).adSpend?.deleteMany?.();
   await (prisma as any).subscription?.deleteMany?.();
   await (prisma as any).orderItem?.deleteMany?.();
   await (prisma as any).order?.deleteMany?.();
