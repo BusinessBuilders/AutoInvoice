@@ -30,6 +30,25 @@ export default async function globalSetup(): Promise<void> {
     stdio: 'pipe',
   });
 
+  // Holding-company views (raw SQL migration; vision_reader grants are
+  // role-guarded so they no-op in the container).
+  const viewsSql = fs.readFileSync(
+    path.join(
+      __dirname, '..', '..', 'prisma', 'migrations',
+      '20260610000008_business_os_holding_views', 'migration.sql'
+    ),
+    'utf8'
+  );
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { Client } = require('pg');
+  const client = new Client({ connectionString: uri });
+  await client.connect();
+  try {
+    await client.query(viewsSql);
+  } finally {
+    await client.end();
+  }
+
   // Hand the container URL to test workers (separate processes) via a file.
   fs.writeFileSync(TEST_DB_URL_FILE, uri, 'utf8');
 }

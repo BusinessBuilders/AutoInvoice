@@ -95,6 +95,39 @@ import { markReconciliationHandler, toolSpec as markReconciliationSpec } from ".
 TOOLS.push(markReconciliationSpec);
 HANDLERS["mark_reconciliation"] = markReconciliationHandler;
 
+// Business OS tools (docs/BUSINESS_OS_SPEC.md §5)
+import { createLeadHandler, toolSpec as createLeadSpec } from "./tools/create_lead.js";
+TOOLS.push(createLeadSpec);
+HANDLERS["create_lead"] = createLeadHandler;
+
+import { logActivityHandler, toolSpec as logActivitySpec } from "./tools/log_activity.js";
+TOOLS.push(logActivitySpec);
+HANDLERS["log_activity"] = logActivityHandler;
+
+import { getCustomer360Handler, toolSpec as getCustomer360Spec } from "./tools/get_customer_360.js";
+TOOLS.push(getCustomer360Spec);
+HANDLERS["get_customer_360"] = getCustomer360Handler;
+
+import { ingestOrderHandler, toolSpec as ingestOrderSpec } from "./tools/ingest_order.js";
+TOOLS.push(ingestOrderSpec);
+HANDLERS["ingest_order"] = ingestOrderHandler;
+
+import {
+  agingQuotesSpec, listAgingQuotesHandler,
+  attributionSpec, getAttributionReportHandler,
+  mrrSpec, getMrrHandler,
+  pipelineSpec, getPipelineHandler,
+  jobsTodaySpec, listJobsTodayHandler,
+  revenueSummarySpec, getRevenueSummaryHandler,
+} from "./tools/business_os_reports.js";
+TOOLS.push(agingQuotesSpec, attributionSpec, mrrSpec, pipelineSpec, jobsTodaySpec, revenueSummarySpec);
+HANDLERS["list_aging_quotes"] = listAgingQuotesHandler;
+HANDLERS["get_attribution_report"] = getAttributionReportHandler;
+HANDLERS["get_mrr"] = getMrrHandler;
+HANDLERS["get_pipeline"] = getPipelineHandler;
+HANDLERS["list_jobs_today"] = listJobsTodayHandler;
+HANDLERS["get_revenue_summary"] = getRevenueSummaryHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 

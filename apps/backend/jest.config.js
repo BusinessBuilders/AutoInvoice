@@ -39,6 +39,8 @@ module.exports = {
   testTimeout: 30000,
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // packages/mcp is ESM with .js-suffixed relative imports; strip for ts-jest
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   globals: {
     'ts-jest': {

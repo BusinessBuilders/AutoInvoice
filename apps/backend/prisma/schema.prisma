@@ -1997,3 +1997,20 @@ model AdSpend {
   @@unique([companyId, date, channel, campaign])
   @@index([companyId, date])
 }
+
+// ============ Business OS (Phase 6): automations ============
+
+// Fire-once ledger for automation rules (spec §3.10). The unique key embeds
+// the stage where a rule escalates (e.g. "dunning:2").
+model AutomationLog {
+  id         String   @id @default(cuid())
+  rule       String   // "aging_quote_nudge" | "post_job_review" | "renewal_reminder" | "dunning:<n>" | "churn_risk" | "restock"
+  entityType String   // "quote" | "job" | "subscription" | "product"
+  entityId   String
+  companyId  String?
+  firedAt    DateTime @default(now())
+  result     Json?
+
+  @@unique([rule, entityType, entityId])
+  @@index([companyId, firedAt])
+}
