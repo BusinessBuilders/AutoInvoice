@@ -8,7 +8,7 @@ BEGIN
 END
 $$;
 
-GRANT CONNECT ON DATABASE CURRENT_DATABASE TO vision_reader;
+DO $grant$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO vision_reader', current_database()); END $grant$;
 GRANT USAGE ON SCHEMA public TO vision_reader;
 
 -- SELECT on all existing tables

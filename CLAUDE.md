@@ -469,6 +469,16 @@ Visit `/accounting/income` to see exactly which transactions count as income. If
 
 ---
 
+## Database Safety Rules
+
+- **NEVER run destructive database commands** (DROP, DELETE FROM, TRUNCATE, ALTER TABLE ... DROP, prisma migrate reset, prisma db push --force-reset)
+- **ALWAYS backup the database before running Prisma migrations** against production/staging
+- **Use testcontainers** (ephemeral Docker PostgreSQL) for all automated testing — never test against the real DB
+- **prisma migrate dev** is for generating migration files only (use `--create-only` flag) — do NOT auto-apply to prod
+- **prisma migrate deploy** requires explicit user permission and a verified backup first
+
+---
+
 ## Common Gotchas
 
 1. **Prisma Client**: Run `npm run generate` after schema changes or weird type errors appear
