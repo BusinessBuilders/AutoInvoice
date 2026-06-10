@@ -47,6 +47,8 @@ model User {
   @@index([email])
   @@index([role])
   @@index([active])
+
+  activities      Activity[]
 }
 
 model RefreshToken {
@@ -136,6 +138,17 @@ model Customer {
   @@index([email])
   @@index([phone])
   @@index([name])
+
+  // Business OS: company scoping + first-touch attribution (spec §3.1, §3.8)
+  primaryCompanyId    String?
+  primaryCompany      Company?  @relation("CustomerPrimaryCompany", fields: [primaryCompanyId], references: [id])
+  acquisitionSource   String?
+  acquisitionCampaign String?
+  firstTouchAt        DateTime?
+  revenueEvents       RevenueEvent[]
+  activities          Activity[]
+
+  @@index([primaryCompanyId])
 }
 
 model Service {
@@ -237,6 +250,12 @@ model Invoice {
   @@index([status])
   @@index([serviceDate])
   @@index([invoiceNumber])
+
+  // Business OS: company scoping (spec §3.1)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model LineItem {
@@ -677,6 +696,14 @@ model Lead {
   @@index([nextFollowUpAt])
   @@index([createdAt])
   @@index([company])
+
+  // Business OS: company scoping (spec §3.1). NB: `company` is already the
+  // business-card company-name string, hence companyRel.
+  companyId       String?
+  companyRel      Company?  @relation(fields: [companyId], references: [id])
+  activities      Activity[]
+
+  @@index([companyId])
 }
 
 model Reminder {
@@ -791,6 +818,12 @@ model Quote {
   @@index([customerId])
   @@index([status])
   @@index([validUntil])
+
+  // Business OS: company scoping (spec §3.1)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
 }
 
 model QuoteLineItem {
@@ -1294,6 +1327,14 @@ model Company {
 
   @@index([userId])
   @@index([active])
+
+  // Business OS relations (spec §3.1)
+  primaryCustomers Customer[] @relation("CustomerPrimaryCompany")
+  invoices         Invoice[]
+  leads            Lead[]
+  quotes           Quote[]
+  revenueEvents    RevenueEvent[]
+  activities       Activity[]
 }
 
 model TaxAccount {
@@ -1546,4 +1587,93 @@ model ReconciliationLog {
   @@unique([companyId, throughDate])
   @@index([companyId, throughDate(sort: Desc)])
   @@map("reconciliation_log")
+}
+
+// ============ Business OS (Phase 1) ============
+
+enum RevenueEngine {
+  FIELD_SERVICE // Donovan Farms jobs
+  SUBSCRIPTION  // Business Builders recurring
+  COMMERCE      // online product sales
+  SERVICES      // generic invoiced work (legacy/default)
+  OTHER         // partnerships, licensing, manual
+}
+
+enum RevenueEventType {
+  INVOICE_PAYMENT
+  ORDER_PAYMENT
+  SUBSCRIPTION_RENEWAL
+  REFUND
+  ADJUSTMENT
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  SMS
+  MEETING
+  SITE_VISIT
+  NOTE
+  SYSTEM
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// ============ NEW MODELS ============
+
+// The Revenue Event spine (docs/BUSINESS_OS_SPEC.md §3.2). Written ONLY by
+// services/revenue-events.ts. Unique constraint = idempotency.
+model RevenueEvent {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id])
+  customerId  String?
+  customer    Customer?        @relation(fields: [customerId], references: [id])
+  engine      RevenueEngine
+  eventType   RevenueEventType
+  sourceType  String           // "invoice" | "order" | "subscription" | "manual" | future
+  sourceId    String
+  amount      Decimal          // negative for REFUND
+  currency    String           @default("USD")
+  occurredAt  DateTime
+  description String?
+  // first-touch attribution snapshot (Phase 5 fills these)
+  attributionSource   String?
+  attributionCampaign String?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+
+  @@unique([sourceType, sourceId, eventType])
+  @@index([companyId, occurredAt])
+  @@index([customerId])
+  @@index([engine, occurredAt])
+}
+
+// Activity + communications log (spec §3.3)
+model Activity {
+  id         String             @id @default(cuid())
+  userId     String
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId  String?
+  company    Company?           @relation(fields: [companyId], references: [id])
+  customerId String?
+  customer   Customer?          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  leadId     String?
+  lead       Lead?              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type       ActivityType
+  direction  ActivityDirection?
+  subject    String?
+  body       String
+  occurredAt DateTime           @default(now())
+  source     String             @default("manual") // "manual" | "api" | "eve" | "automation" | "system"
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+
+  @@index([customerId, occurredAt])
+  @@index([leadId, occurredAt])
+  @@index([companyId, occurredAt])
+  @@index([userId, occurredAt])
 }

@@ -4,6 +4,7 @@ import { prisma } from '../utils/db';
 import { aiRouter } from '../services/ai';
 import logger from '../utils/logger';
 import { createCheckDepositEntry, voidJournalEntry } from '../services/accounting/journal-service';
+import { emitInvoicePaymentEvent } from '../services/revenue-events';
 
 export const checkRouter = router({
   /**
@@ -144,6 +145,11 @@ export const checkRouter = router({
               invoiceNumber: matchingInvoices[0].invoiceNumber,
               journalEntryId,
             });
+
+            // Revenue Event spine: idempotent, must never fail the match
+            await emitInvoicePaymentEvent(matchedInvoiceId).catch((err) =>
+              logger.error('Failed to emit revenue event (check auto-match)', { err })
+            );
           } catch (error) {
             logger.error('Failed to create journal entry during auto-match', {
               checkId: check.id,
@@ -253,6 +259,11 @@ export const checkRouter = router({
           invoiceId: input.invoiceId,
           journalEntryId: journalEntryResult.id,
         });
+
+        // Revenue Event spine: idempotent, must never fail the match
+        await emitInvoicePaymentEvent(input.invoiceId).catch((err) =>
+          logger.error('Failed to emit revenue event (check manual match)', { err })
+        );
 
         return updatedCheck;
       } catch (error) {
