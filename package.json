@@ -1,0 +1,36 @@
+{
+  "name": "autoinvoice",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered invoice automation platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "docker-compose up -d && npm run dev:backend & npm run dev:web",
+    "dev:backend": "npm run dev --workspace=@autoinvoice/backend",
+    "dev:web": "npm run dev --workspace=@autoinvoice/web",
+    "dev:mobile": "npm run dev --workspace=@autoinvoice/mobile",
+    "build": "npm run build --workspaces",
+    "build:backend": "npm run build --workspace=@autoinvoice/backend",
+    "build:web": "npm run build --workspace=@autoinvoice/web",
+    "lint": "npm run lint --workspaces",
+    "test": "npm run test --workspaces",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "db:migrate": "npm run migrate --workspace=@autoinvoice/backend",
+    "db:studio": "npm run studio --workspace=@autoinvoice/backend",
+    "db:seed": "npm run seed --workspace=@autoinvoice/backend",
+    "db:backup": "docker exec invoice_db pg_dump -U $DB_USER invoice_platform > ./backup/backup_$(date +%Y%m%d_%H%M%S).sql"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}

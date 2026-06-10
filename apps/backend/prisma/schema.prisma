@@ -1,0 +1,1541 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  password        String
+  name            String
+  role            UserRole  @default(OWNER)
+  phone           String?
+  active          Boolean   @default(true)
+  emailVerified   Boolean   @default(false)
+  emailVerifiedAt DateTime?
+  twoFactorEnabled Boolean  @default(false)
+  twoFactorSecret  String?
+
+  // Company Branding (for PDF invoices)
+  logoPath        String?   // Path to uploaded logo file
+  brandColors     Json?     // Extracted colors: {primary, secondary, accent, background}
+  companyName     String?
+  companyAddress  String?
+  companyPhone    String?
+  companyEmail    String?
+  companyWebsite  String?
+  companyTaxId    String?
+
+  // Relations
+  assignedTasks   Task[]    @relation("AssignedTo")
+  createdTasks    Task[]    @relation("CreatedBy")
+  refreshTokens   RefreshToken[]
+  passwordResets  PasswordReset[]
+  services        Service[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([email])
+  @@index([role])
+  @@index([active])
+}
+
+model RefreshToken {
+  id              String    @id @default(cuid())
+  token           String    @unique
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt       DateTime
+  revoked         Boolean   @default(false)
+  revokedAt       DateTime?
+  replacedBy      String?   // Token that replaced this one (for rotation)
+
+  // Device tracking
+  userAgent       String?
+  ipAddress       String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model PasswordReset {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token           String    @unique
+  expiresAt       DateTime
+  used            Boolean   @default(false)
+  usedAt          DateTime?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model Customer {
+  id              String    @id @default(cuid())
+  name            String
+  email           String?   @unique
+  phone           String?   @unique
+  company         String?
+  nickname        String[]  // Array of nicknames
+
+  // Address
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  coordinates     Json?     // {lat, lng}
+
+  // Billing
+  defaultRate     Decimal?
+  paymentTerms    String    @default("NET30")
+  taxExempt       Boolean   @default(false)
+
+  // Metadata
+  notes           String?
+  tags            String[]
+  customFields    Json?
+
+  // AI Vector Search
+  embedding       Unsupported("vector(1536)")?  // OpenAI text-embedding-3-small
+
+  // Relations
+  invoices        Invoice[]
+  locations       Location[]
+  conversations   Conversation[]
+  priceOverrides  PriceOverride[]
+  quotes          Quote[]
+  leads           Lead[]
+  tallyInvoices   TallyInvoice[]
+  journalLines    JournalLine[]
+  plowBillings    PlowBilling[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([email])
+  @@index([phone])
+  @@index([name])
+}
+
+model Service {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  code            String    // Removed @unique - code should be unique per user, not globally
+  category        String
+  description     String?
+
+  // Customer association (for customer-specific services like "Salt Walks Westview")
+  customerTag     String?   // Customer name/identifier this service is for
+
+  // Pricing
+  basePrice       Decimal?
+  priceUnit       String?   // "sqft", "hour", "unit"
+
+  // AI Vector Search
+  embedding       Unsupported("vector(1536)")?  // OpenAI text-embedding-3-small
+
+  // Relations
+  lineItems       LineItem[]
+  priceOverrides  PriceOverride[]
+  tallyItems      TallyItem[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, code])  // Code must be unique per user
+  @@index([userId])
+  @@index([code])
+  @@index([category])
+  @@index([customerTag])
+}
+
+model Invoice {
+  id              String    @id @default(cuid())
+  invoiceNumber   String    @unique
+
+  // Customer
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  // Location
+  locationId      String?
+  location        Location? @relation(fields: [locationId], references: [id])
+  serviceAddress  String?
+
+  // Dates
+  serviceDate     DateTime
+  issueDate       DateTime  @default(now())
+  dueDate         DateTime
+  paidDate        DateTime?
+  paymentTerms    String?   @default("Net 30") // "Net 30", "Due on Receipt", "Net 15", etc.
+
+  // Status
+  status          InvoiceStatus @default(DRAFT)
+
+  // Financial
+  subtotal        Decimal
+  taxRate         Decimal   @default(0)
+  taxAmount       Decimal   @default(0)
+  discount        Decimal   @default(0)
+  total           Decimal
+
+  // Content
+  lineItems       LineItem[]
+  notes           String?
+  terms           String?
+
+  // Files
+  pdfUrl          String?
+  pdfData         Bytes?
+
+  // Source
+  source          String?   // "voice", "telegram", "web", "cli"
+  sourceMessageId String?
+
+  // Accounting Integration
+  recognitionJournalEntryId String?  // Journal entry for revenue recognition (when SENT)
+  paymentJournalEntryId     String?  // Journal entry for payment (when PAID)
+
+  // Relations
+  receipts        Receipt[]
+  check           Check?
+  conversations   Conversation[]
+  quotes          Quote[]
+  tallyInvoice    TallyInvoice?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sentAt          DateTime?
+
+  @@index([customerId])
+  @@index([status])
+  @@index([serviceDate])
+  @@index([invoiceNumber])
+}
+
+model LineItem {
+  id              String    @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  serviceId       String?
+  service         Service?  @relation(fields: [serviceId], references: [id])
+
+  description     String
+  quantity        Decimal
+  unit            String?
+  rate            Decimal
+  amount          Decimal
+
+  order           Int
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+}
+
+model Receipt {
+  id              String    @id @default(cuid())
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+  userId          String?
+
+  // File
+  imageUrl        String?
+  imageData       Bytes?
+
+  // Extracted Data
+  vendor          String
+  amount          Decimal
+  date            DateTime
+  category        String?
+  items           Json?     // Array of items
+  ocrData         Json?     // Raw OCR result
+  
+  // Accounting integration
+  expenseCategoryId  String?
+  expenseCategory    ExpenseCategory? @relation(fields: [expenseCategoryId], references: [id])
+  journalEntryId     String?
+
+  // Payment Information
+  paymentMethod   String?   // "credit_card", "debit_card", "cash", "check", "other"
+  cardLast4       String?   // Last 4 digits if card payment
+  cardBrand       String?   // "visa", "mastercard", "amex", etc.
+
+  // Business Purpose / Notes
+  notes           String?   // For business meals: who you met, what was discussed, etc.
+
+  // Metadata
+  status          String    @default("pending") // "pending", "processed", "review_needed"
+  processed       Boolean   @default(false)
+  confidence      Float?    // OCR confidence
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@index([vendor])
+  @@index([date])
+  @@index([userId])
+  @@index([paymentMethod])
+  @@index([expenseCategoryId])
+}
+
+model Check {
+  id              String    @id @default(cuid())
+  invoiceId       String?   @unique
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+  userId          String?
+
+  // File
+  imageUrl        String?
+  imageData       Bytes?
+
+  // Extracted Check Data
+  checkNumber     String
+  amount          Decimal
+  date            DateTime
+  payee           String?
+  memo            String?
+  ocrData         Json?     // Raw OCR result
+
+  // Accounting integration
+  journalEntryId  String?   // Link to journal entry when check is deposited
+
+  // Matching & Processing
+  status          String    @default("pending") // "pending", "matched", "processed", "review_needed"
+  matchedAt       DateTime?
+  confidence      Float?    // OCR confidence
+  processed       Boolean   @default(false)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([invoiceId])
+  @@index([checkNumber])
+  @@index([date])
+  @@index([userId])
+  @@index([amount])
+  @@index([journalEntryId])
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  // Channel
+  channel         String    // "telegram", "voice", "web", "cli"
+  channelUserId   String?
+
+  // Content
+  messages        Message[]
+  context         Json?     // Conversation context
+
+  // Status
+  status          String    @default("active")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([channelUserId])
+}
+
+model Message {
+  id              String    @id @default(cuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role            String    // "user", "assistant", "system"
+  content         String
+
+  // For voice messages
+  audioUrl        String?
+  transcription   String?
+
+  // AI Processing
+  intent          Json?     // Parsed intent
+  entities        Json?     // Extracted entities
+  confidence      Float?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([conversationId])
+}
+
+model Location {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  name            String
+  addressLine1    String
+  addressLine2    String?
+  city            String
+  state           String
+  zipCode         String
+
+  coordinates     Json?     // {lat, lng}
+
+  // Size/Details
+  squareFeet      Int?
+  notes           String?
+  accessCodes     String?
+
+  invoices        Invoice[]
+  tallyInvoices   TallyInvoice[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+}
+
+model PriceOverride {
+  id              String    @id @default(cuid())
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  serviceId       String
+  service         Service   @relation(fields: [serviceId], references: [id])
+
+  price           Decimal
+  unit            String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([customerId, serviceId])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PLOW BILLING - Stripe Payment Link Tracking
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model PlowBilling {
+  id              String    @id @default(cuid())
+
+  // Customer
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  // Services billed
+  plowCount       Int       @default(0)
+  plowPrice       Decimal   @default(0)
+  saltCount       Int       @default(0)
+  saltPrice       Decimal   @default(0)
+  totalAmount     Decimal
+
+  // Stripe
+  stripePaymentLinkId   String?
+  stripePaymentLinkUrl  String
+  stripeSessionId       String?   // Filled when customer clicks link
+  stripePaymentIntentId String?   // Filled when payment completes
+
+  // Status
+  status          PlowBillingStatus @default(PENDING)
+  sentAt          DateTime?
+  paidAt          DateTime?
+
+  // Metadata
+  description     String?
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum PlowBillingStatus {
+  PENDING     // Link generated, not sent
+  SENT        // Link texted/sent to customer
+  VIEWED      // Customer clicked link (optional tracking)
+  PAID        // Payment completed
+  EXPIRED     // Link expired without payment
+  CANCELLED   // Manually cancelled
+}
+
+model AIInteraction {
+  id              String    @id @default(cuid())
+
+  // Request
+  input           String
+  model           String
+  provider        String    // "openai", "anthropic", "ollama"
+
+  // Response
+  output          Json
+  tokensUsed      Int?
+  cost            Decimal?
+  latencyMs       Int?
+
+  // Status
+  success         Boolean
+  error           String?
+
+  createdAt       DateTime  @default(now())
+
+  @@index([provider])
+  @@index([createdAt])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TALLY INVOICE SYSTEM - Running Tallies
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model TallyInvoice {
+  id              String      @id @default(cuid())
+
+  // Customer
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id])
+
+  // Location (optional)
+  locationId      String?
+  location        Location?   @relation(fields: [locationId], references: [id])
+  serviceAddress  String?
+
+  // Status
+  status          TallyStatus @default(OPEN)
+
+  // Running totals (updated on each add)
+  subtotal        Decimal     @default(0)
+  itemCount       Int         @default(0)
+
+  // Line items
+  tallyItems      TallyItem[]
+
+  // Conversion tracking
+  convertedToInvoiceId  String?   @unique
+  convertedToInvoice    Invoice?  @relation(fields: [convertedToInvoiceId], references: [id])
+  convertedAt           DateTime?
+
+  // Source tracking
+  source          String?   // "voice", "web", "telegram"
+
+  // User ownership
+  userId          String
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([customerId, status, userId])
+  @@index([userId, status])
+  @@index([customerId])
+}
+
+model TallyItem {
+  id              String       @id @default(cuid())
+  tallyInvoiceId  String
+  tallyInvoice    TallyInvoice @relation(fields: [tallyInvoiceId], references: [id], onDelete: Cascade)
+
+  // Service reference (optional for orphan items)
+  serviceId       String?
+  service         Service?     @relation(fields: [serviceId], references: [id])
+
+  // Item details
+  description     String
+  quantity        Decimal
+  unit            String?
+  rate            Decimal
+  amount          Decimal
+
+  // Service date for this specific item
+  serviceDate     DateTime     @default(now())
+
+  // Source tracking
+  source          String?      // "voice" | "text"
+  rawInput        String?      // Original user input
+
+  order           Int
+
+  createdAt       DateTime     @default(now())
+
+  @@index([tallyInvoiceId])
+}
+
+enum TallyStatus {
+  OPEN
+  FINALIZED
+  CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LEAD MANAGEMENT & SCHEDULING - NEW FEATURES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Lead {
+  id              String    @id @default(cuid())
+  userId          String?
+
+  // Contact Info
+  name            String
+  phone           String
+  email           String?
+  source          String    @default("sms") // "sms", "call", "email", "web", "referral", "business_card"
+
+  // Lead Details
+  message         String?   // Initial message/inquiry
+  projectType     String?   // "hydroseed", "lawn-mowing", "fertilizer", etc.
+  estimatedArea   Int?      // Square footage
+  estimatedValue  Decimal?  // Potential $ value
+
+  // Business Card Fields
+  company         String?
+  title           String?     // Job title/position
+  website         String?
+  linkedIn        String?
+  twitter         String?
+  facebook        String?
+  instagram       String?
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?
+
+  // Business Card Image
+  businessCardImageData  Bytes?    // Raw business card image
+  businessCardImageUrl   String?
+  extractedData          Json?     // Raw OCR data from AI
+  extractionConfidence   Float?    // OCR confidence score
+
+  // Status Tracking
+  status          LeadStatus @default(NEW)
+  priority        Priority   @default(MEDIUM)
+
+  // Follow-up Tracking
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+  followUpCount   Int       @default(0)
+
+  // Conversion
+  convertedToCustomerId String?
+  convertedToCustomer   Customer? @relation(fields: [convertedToCustomerId], references: [id])
+  convertedToQuoteId    String?   @unique
+  convertedToQuote      Quote?    @relation("LeadConversion", fields: [convertedToQuoteId], references: [id])
+  convertedAt     DateTime?
+
+  // Relations
+  reminders       Reminder[]
+  followUps       FollowUp[]
+  quotes          Quote[]   @relation("LeadQuotes")
+  notes           LeadNote[]
+
+  // Metadata
+  tags            String[]
+  customFields    Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([phone])
+  @@index([status])
+  @@index([nextFollowUpAt])
+  @@index([createdAt])
+  @@index([company])
+}
+
+model Reminder {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  // Reminder Details
+  title           String
+  description     String?
+  remindAt        DateTime
+
+  // Status
+  status          ReminderStatus @default(PENDING)
+  completedAt     DateTime?
+  snoozedUntil    DateTime?
+
+  // Notification
+  notifyVia       String[]  // ["sms", "email", "push", "in-app"]
+  notifiedAt      DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([remindAt])
+  @@index([status])
+}
+
+model FollowUp {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  // Follow-up Details
+  type            FollowUpType
+  scheduledFor    DateTime
+  message         String?   // Pre-written message template
+
+  // Status
+  status          FollowUpStatus @default(SCHEDULED)
+  attemptedAt     DateTime?
+  completedAt     DateTime?
+
+  // Result
+  contacted       Boolean   @default(false)
+  response        String?   // What they said
+  outcome         String?   // "interested", "not-interested", "callback-later", "converted"
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([scheduledFor])
+  @@index([status])
+}
+
+model Quote {
+  id              String    @id @default(cuid())
+  quoteNumber     String    @unique
+  leadId          String?
+  lead            Lead?     @relation("LeadQuotes", fields: [leadId], references: [id])
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  userId          String?
+
+  // Reverse relation for lead conversion
+  convertedFromLead Lead?   @relation("LeadConversion")
+
+  // Project Details
+  projectType     String    // "hydroseed", "lawn-mowing", etc.
+  area            Int?      // Square footage
+  description     String?
+
+  // Pricing
+  lineItems       QuoteLineItem[]
+  subtotal        Decimal
+  taxRate         Decimal   @default(0)
+  taxAmount       Decimal   @default(0)
+  discount        Decimal   @default(0)
+  total           Decimal
+
+  // Validity
+  validUntil      DateTime
+  expiresAt       DateTime?
+
+  // Status
+  status          QuoteStatus @default(DRAFT)
+  sentAt          DateTime?
+  viewedAt        DateTime?
+  acceptedAt      DateTime?
+  rejectedAt      DateTime?
+
+  // Conversion
+  convertedToInvoiceId String?
+  convertedToInvoice   Invoice? @relation(fields: [convertedToInvoiceId], references: [id])
+  convertedAt     DateTime?
+
+  // Files
+  pdfUrl          String?
+
+  // Metadata
+  notes           String?
+  terms           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([customerId])
+  @@index([status])
+  @@index([validUntil])
+}
+
+model QuoteLineItem {
+  id              String    @id @default(cuid())
+  quoteId         String
+  quote           Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  description     String
+  quantity        Decimal
+  unit            String?   // "sqft", "hour", "unit"
+  rate            Decimal
+  amount          Decimal
+
+  order           Int
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([quoteId])
+}
+
+model LeadNote {
+  id              String    @id @default(cuid())
+  leadId          String
+  lead            Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId          String?
+
+  content         String
+  type            String    @default("note") // "note", "call", "meeting", "email"
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+// Contact model for "Network" contacts (business cards)
+model Contact {
+  id              String    @id @default(cuid())
+  userId          String?
+
+  // Core Contact Info
+  name            String
+  phone           String?
+  email           String?
+  company         String?
+  title           String?
+
+  // Address
+  addressLine1    String?
+  addressLine2    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String?
+
+  // Online Presence
+  website         String?
+  linkedIn        String?
+  twitter         String?
+  facebook        String?
+  instagram       String?
+
+  // Business Card Image
+  businessCardImageData  Bytes?
+  businessCardImageUrl   String?
+  extractedData          Json?     // Raw OCR extraction
+  extractionConfidence   Float?
+
+  // Organization
+  category        String?   // "client", "vendor", "partner", "colleague", etc.
+  tags            String[]
+  notes           String?
+
+  // Metadata
+  source          String    @default("business_card")
+  lastContactedAt DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([name])
+  @@index([company])
+  @@index([category])
+}
+
+// SMS/Communication Log
+model SmsMessage {
+  id              String    @id @default(cuid())
+  userId          String?
+  leadId          String?
+
+  // Message Details
+  from            String    // Phone number
+  to              String    // Phone number
+  body            String
+  direction       Direction // INBOUND or OUTBOUND
+
+  // Twilio Data
+  twilioSid       String?   @unique
+  status          String?   // "queued", "sent", "delivered", "failed"
+  errorCode       String?
+  errorMessage    String?
+
+  // Metadata
+  mediaUrls       String[]  // Attached images
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([leadId])
+  @@index([from])
+  @@index([to])
+  @@index([createdAt])
+}
+
+// Enums for Lead Management
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  QUOTED
+  NEGOTIATING
+  WON
+  LOST
+  DEAD
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ReminderStatus {
+  PENDING
+  SNOOZED
+  COMPLETED
+  CANCELLED
+}
+
+enum FollowUpType {
+  INITIAL_CONTACT
+  FOLLOW_UP_1
+  FOLLOW_UP_2
+  FOLLOW_UP_3
+  FINAL_ATTEMPT
+  CUSTOM
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TEAM & TASK MANAGEMENT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Task {
+  id              String    @id @default(cuid())
+
+  // What needs to be done
+  title           String
+  description     String?
+  type            TaskType  @default(FOLLOW_UP)
+
+  // Assignment
+  assignedToId    String?
+  assignedTo      User?     @relation("AssignedTo", fields: [assignedToId], references: [id])
+  createdById     String
+  createdBy       User      @relation("CreatedBy", fields: [createdById], references: [id])
+
+  // References
+  leadId          String?
+  customerId      String?
+  invoiceId       String?
+
+  // Scheduling
+  dueDate         DateTime?
+  scheduledFor    DateTime?
+  completedAt     DateTime?
+
+  // Status
+  status          TaskStatus @default(TODO)
+  priority        Priority   @default(MEDIUM)
+
+  // Notes
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([status])
+  @@index([dueDate])
+  @@index([scheduledFor])
+  @@index([leadId])
+  @@index([customerId])
+  @@index([invoiceId])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  EMPLOYEE
+  VIEWER
+}
+
+enum TaskType {
+  FOLLOW_UP
+  QUOTE
+  SCHEDULE_JOB
+  CALL_CUSTOMER
+  SEND_INVOICE
+  COLLECT_PAYMENT
+  SITE_VISIT
+  OTHER
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  WAITING
+  COMPLETED
+  CANCELLED
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DOUBLE-ENTRY ACCOUNTING SYSTEM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum BalanceType {
+  DEBIT
+  CREDIT
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  VOIDED
+}
+
+enum JournalSourceType {
+  INVOICE
+  RECEIPT
+  CHECK
+  MANUAL
+  ADJUSTMENT
+  OPENING_BALANCE
+  TRANSFER
+}
+
+model Account {
+  id              String      @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Account identification
+  code            String                // Account number (e.g., "1000", "4100")
+  name            String                // Account name (e.g., "Cash", "Accounts Receivable")
+  accountType     AccountType
+  balanceType     BalanceType           // Natural balance side
+
+  // Hierarchy
+  parentId        String?
+  parent          Account?    @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children        Account[]   @relation("AccountHierarchy")
+  level           Int         @default(0)
+
+  // Balance tracking
+  balance         Decimal     @default(0)
+  balanceAsOf     DateTime    @default(now())
+
+  // Configuration
+  active          Boolean     @default(true)
+  systemAccount   Boolean     @default(false)  // System-managed (AR, revenue, etc.)
+  allowManualEntries Boolean  @default(true)
+
+  // Tax configuration
+  taxEnabled      Boolean     @default(false)
+  taxRate         Decimal?
+
+  // Metadata
+  description     String?
+  notes           String?
+  tags            String[]
+
+  // Relations
+  journalLines    JournalLine[]
+  expenseCategories ExpenseCategory[]
+  linkedBankAccounts BankAccount[]     // Bank/CC accounts linked to this Chart of Accounts entry
+  linkedTaxAccounts TaxAccount[]       // Tax categories linked to this Chart of Accounts entry
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([userId, code])
+  @@index([userId])
+  @@index([userId, accountType])
+  @@index([accountType])
+  @@index([parentId])
+  @@index([active])
+  @@index([systemAccount])
+}
+
+model JournalEntry {
+  id              String            @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Entry identification
+  entryNumber     String                     // Sequential journal entry number
+  entryDate       DateTime                   // Transaction date
+
+  // Status
+  status          JournalStatus     @default(DRAFT)
+  postedAt        DateTime?
+  postedBy        String?
+  voidedAt        DateTime?
+  voidedBy        String?
+  voidReason      String?
+
+  // Source tracking
+  sourceType      JournalSourceType
+  sourceId        String?                    // ID of source document (invoice, receipt, etc.)
+  referenceNumber String?                    // External reference (invoice #, check #, etc.)
+
+  // Description
+  description     String
+  notes           String?
+
+  // Lines
+  lines           JournalLine[]
+
+  // Metadata
+  tags            String[]
+  customFields    Json?
+
+  // User tracking
+  createdBy       String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([userId, entryNumber])
+  @@index([userId])
+  @@index([userId, entryDate])
+  @@index([userId, status])
+  @@index([entryDate])
+  @@index([status])
+  @@index([sourceType, sourceId])
+  @@index([createdBy])
+}
+
+model JournalLine {
+  id              String        @id @default(cuid())
+  
+  // Entry reference
+  journalEntryId  String
+  journalEntry    JournalEntry  @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  
+  // Account reference
+  accountId       String
+  account         Account       @relation(fields: [accountId], references: [id])
+  
+  // Amount
+  debit           Decimal       @default(0)
+  credit          Decimal       @default(0)
+  
+  // Entity tracking (customer, vendor, etc.)
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id])
+  
+  // Line details
+  description     String?
+  lineOrder       Int           @default(0)
+  
+  // Metadata
+  tags            String[]
+  
+  createdAt       DateTime      @default(now())
+  
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([customerId])
+}
+
+model ExpenseCategory {
+  id              String    @id @default(cuid())
+
+  // Multi-tenancy
+  userId          String
+
+  // Category identification
+  name            String
+  code            String?
+
+  // Accounting integration
+  accountId       String?
+  account         Account?  @relation(fields: [accountId], references: [id])
+
+  // Hierarchy
+  parentId        String?
+  parent          ExpenseCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        ExpenseCategory[] @relation("CategoryHierarchy")
+
+  // Configuration
+  active          Boolean   @default(true)
+  requiresReceipt Boolean   @default(true)
+  taxDeductible   Boolean   @default(true)
+
+  // IRS/Tax categorization
+  taxCategory     String?   // IRS Schedule C category
+  description     String?
+
+  // Relations
+  receipts        Receipt[]
+
+  // Metadata
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, name])
+  @@unique([userId, code])
+  @@index([userId])
+  @@index([accountId])
+  @@index([parentId])
+  @@index([active])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BANK TRANSACTION & TAX REPORTING SYSTEM
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Company {
+  id              String    @id @default(cuid())
+  userId          String
+
+  // Company Info
+  name            String
+  legalName       String?
+  taxId           String?   // EIN
+  taxType         String?   // "S-Corp", "LLC", "Sole Proprietor"
+  fiscalYearStart String    @default("01-01") // MM-DD format
+
+  // Address
+  address         String?
+  city            String?
+  state           String?
+  zipCode         String?
+
+  // Settings
+  active          Boolean   @default(true)
+
+  // Relations
+  bankAccounts    BankAccount[]
+  taxAccounts     TaxAccount[]
+  categorizationRules CategorizationRule[]
+  bankTransactions BankTransaction[]
+  vendors         Vendor[]
+  reconciliationLogs ReconciliationLog[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([active])
+}
+
+model TaxAccount {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Account Info
+  code            String    // "1010", "4010", "6100"
+  name            String    // "Cash - Operating", "Gross Receipts"
+  accountType     TaxAccountType
+
+  // Tax Treatment
+  taxTreatment    String    // "100%", "50%", "NON_DEDUCTIBLE", "TRANSFER"
+  scheduleC       String?   // IRS form line number (for Schedule C/Form 1120-S)
+
+  // Configuration
+  active          Boolean   @default(true)
+  isSystemAccount Boolean   @default(false)
+
+  // Link to Chart of Accounts (unifies the two account systems)
+  linkedAccountId String?
+  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
+
+  // Relations
+  bankTransactions BankTransaction[]
+  categorizationRules CategorizationRule[]
+  vendorDefaults  Vendor[]                // Vendors that use this as default category
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([accountType])
+  @@index([taxTreatment])
+}
+
+model BankAccount {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Account Info
+  name            String    // "Operating Account", "Payroll Account"
+  accountNumber   String?   // Last 4 digits (e.g., "0055")
+  bankName        String?
+  accountType     String    @default("checking") // "checking", "savings", "credit_card"
+
+  // Link to Chart of Accounts
+  linkedAccountId String?   // Links to Account (Asset for checking/savings, Liability for credit cards)
+  linkedAccount   Account?  @relation(fields: [linkedAccountId], references: [id])
+
+  // Balance Tracking
+  currentBalance  Decimal   @default(0)
+  balanceAsOf     DateTime  @default(now())
+
+  // Configuration
+  active          Boolean   @default(true)
+  isPrimary       Boolean   @default(false)  // Primary account for the company
+
+  // Relations
+  transactions    BankTransaction[]
+  vendorDefaults  Vendor[]           // Vendors that use this as default bank account
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, accountNumber])
+  @@index([companyId])
+  @@index([active])
+  @@index([linkedAccountId])
+}
+
+model CategorizationRule {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Rule Info
+  name            String
+
+  // Matching Logic
+  matchType       MatchType // CONTAINS, STARTS_WITH, EXACT, REGEX
+  matchValue      String
+
+  // Target Category
+  taxAccountId    String
+  taxAccount      TaxAccount @relation(fields: [taxAccountId], references: [id])
+
+  // Optional: Link to Vendor (when rule matches, also assign vendor)
+  vendorId        String?
+  vendor          Vendor?    @relation(fields: [vendorId], references: [id])
+
+  // Priority & Control
+  priority        Int       @default(0) // Higher priority = applied first
+  enabled         Boolean   @default(true)
+  autoCreated     Boolean   @default(false) // Created from user manual categorization
+
+  // Statistics
+  timesMatched    Int       @default(0)
+  lastMatchedAt   DateTime?
+
+  // Relations
+  transactions    BankTransaction[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([enabled])
+  @@index([priority])
+}
+
+model BankTransaction {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Bank Account
+  bankAccountId   String
+  bankAccount     BankAccount @relation(fields: [bankAccountId], references: [id])
+
+  // Transaction Details
+  date            DateTime
+  description     String
+  amount          Decimal   @db.Decimal(10, 2) // Negative for expenses, positive for income
+  balance         Decimal   @db.Decimal(10, 2) // Balance after transaction
+
+  // Categorization
+  taxAccountId    String?
+  taxAccount      TaxAccount? @relation(fields: [taxAccountId], references: [id])
+
+  matchedRuleId   String?
+  matchedRule     CategorizationRule? @relation(fields: [matchedRuleId], references: [id])
+
+  // Manual Override
+  isManualCategorization Boolean @default(false)
+  needsReview     Boolean   @default(true)
+
+  // Vendor Tracking
+  vendorId        String?
+  vendor          Vendor?   @relation(fields: [vendorId], references: [id])
+  vendorRaw       String?   // Original from bank: "AMAZON.COM*MF4Y"
+
+  // Split Transaction Support
+  parentId        String?   // If this is a split child
+  parent          BankTransaction? @relation("SplitParent", fields: [parentId], references: [id], onDelete: Cascade)
+  splits          BankTransaction[] @relation("SplitParent")
+  isSplit         Boolean   @default(false)  // True if this is a split parent
+  splitIndex      Int?      // Order within split group (for children)
+
+  // Optional Links
+  invoiceId       String?   // Link to existing Invoice
+  receiptId       String?   // Link to existing Receipt
+
+  // Metadata
+  notes           String?
+  tags            String[]
+
+  // Import tracking
+  importSource    String?   // "csv", "json", "pdf_vision", "manual"
+  importBatchId   String?   // Group transactions from same import
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId])
+  @@index([bankAccountId])
+  @@index([date])
+  @@index([taxAccountId])
+  @@index([needsReview])
+  @@index([importBatchId])
+  @@index([vendorId])
+  @@index([parentId])
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VENDOR MANAGEMENT & SPLIT TRANSACTIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model Vendor {
+  id              String    @id @default(cuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Vendor Info
+  name            String                // "Amazon", "Shell", "Home Depot"
+  matchPatterns   String[]              // ["AMAZON", "AMZN"] - patterns to auto-detect
+
+  // Optional Defaults
+  defaultBankAccountId  String?         // Which card typically used for this vendor
+  defaultBankAccount    BankAccount?    @relation(fields: [defaultBankAccountId], references: [id])
+  defaultTaxAccountId   String?         // Default category (if single-category vendor)
+  defaultTaxAccount     TaxAccount?     @relation(fields: [defaultTaxAccountId], references: [id])
+
+  // Flags
+  requiresSplit   Boolean   @default(false)  // True for Amazon (usually multi-category)
+  isActive        Boolean   @default(true)
+
+  // Metadata
+  notes           String?   // "Usually office supplies + personal mixed"
+
+  // Relations
+  transactions    BankTransaction[]
+  categorizationRules CategorizationRule[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([isActive])
+}
+
+// Enums for Bank Transaction System
+enum TaxAccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  EQUITY_CONTRA    // Owner draws/distributions - reduces equity
+  INCOME
+  EXPENSE_COGS
+  EXPENSE_OPERATING
+  TRANSFER         // Internal transfers - excluded from reports
+}
+
+enum MatchType {
+  CONTAINS
+  STARTS_WITH
+  EXACT
+  REGEX
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VISION WEALTH OS - RECONCILIATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model ReconciliationLog {
+  id            String   @id @default(cuid())
+  companyId     String
+  throughDate   DateTime @db.Date
+  source        String   // 'manual' | 'statement_match'
+  writtenBy     String
+  writtenAt     DateTime @default(now()) @db.Timestamptz(6)
+  note          String?
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, throughDate])
+  @@index([companyId, throughDate(sort: Desc)])
+  @@map("reconciliation_log")
+}
