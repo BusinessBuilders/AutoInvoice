@@ -12,6 +12,12 @@ import { prisma } from '../src/utils/db';
 import { emitInvoicePaymentEvent } from '../src/services/revenue-events';
 
 const DRY_RUN = process.argv.includes('--dry-run');
+// For users with multiple active companies, --default-company <id> names the
+// company that legacy (pre-Business-OS) CRM rows belong to. Only fills NULLs.
+const defaultCompanyArg = (() => {
+  const i = process.argv.indexOf('--default-company');
+  return i >= 0 ? process.argv[i + 1] : undefined;
+})();
 
 async function main() {
   console.log(`Business OS backfill${DRY_RUN ? ' (dry run)' : ''}`);
@@ -24,16 +30,21 @@ async function main() {
       where: { userId: user.id, active: true },
       select: { id: true, name: true },
     });
-    if (companies.length !== 1) {
+    let company = companies.length === 1 ? companies[0] : undefined;
+    if (!company && companies.length > 1 && defaultCompanyArg) {
+      company = companies.find((c) => c.id === defaultCompanyArg);
+    }
+    if (!company) {
       if (companies.length > 1) {
         console.log(
-          `- ${user.email}: ${companies.length} active companies — skipping auto-scope (ambiguous)`
+          `- ${user.email}: ${companies.length} active companies — skipping auto-scope ` +
+            `(ambiguous; pass --default-company <id> to resolve)`
         );
       }
       continue;
     }
-    const companyId = companies[0].id;
-    console.log(`- ${user.email}: scoping NULL rows to company "${companies[0].name}"`);
+    const companyId = company.id;
+    console.log(`- ${user.email}: scoping NULL rows to company "${company.name}"`);
     if (DRY_RUN) continue;
 
     const [inv, q, l, c] = await Promise.all([
