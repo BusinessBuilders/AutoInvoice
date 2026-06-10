@@ -31,6 +31,7 @@ import { paymentsRouter } from './payments';
 // Business OS module routers
 import { activityRouter } from './activity';
 import { revenueEventsRouter } from './revenueEvents';
+import { jobRouter } from './job';
 
 export const appRouter = router({
   auth: authRouter,
@@ -65,6 +66,7 @@ export const appRouter = router({
   // Business OS module
   activity: activityRouter,
   revenueEvents: revenueEventsRouter,
+  job: jobRouter,
 });
 
 export type AppRouter = typeof appRouter;

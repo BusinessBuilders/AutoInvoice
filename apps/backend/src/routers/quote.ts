@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { quoteMargin } from '../services/jobs';
 import { router, protectedProcedure } from '../trpc';
 import { prisma } from '../utils/db';
 import logger from '../utils/logger';
@@ -90,6 +91,9 @@ export const quoteRouter = router({
             unit: z.string().optional(),
             rate: z.number(),
             amount: z.number(),
+            // Business OS pricebook (spec §3.4): service link + cost snapshot
+            serviceId: z.string().optional(),
+            unitCost: z.number().optional(),
           })
         ),
         subtotal: z.number(),
@@ -384,5 +388,95 @@ export const quoteRouter = router({
         `Ready to get started? Just reply YES and I'll schedule you in!`;
 
       return { message };
+    }),
+
+  /** Quote-level cost/margin from pricebook snapshots (spec §3.4). */
+  margin: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const quote = await prisma.quote.findFirst({
+        where: { id: input.id, userId: ctx.user.id },
+        include: { lineItems: true },
+      });
+      if (!quote) throw new Error('Quote not found');
+      return quoteMargin(quote);
+    }),
+
+  /** Win rate by month: won = ACCEPTED or CONVERTED, of all quotes that left DRAFT. */
+  winRate: protectedProcedure
+    .input(z.object({ companyId: z.string().optional(), months: z.number().int().min(1).max(36).default(12) }))
+    .query(async ({ ctx, input }) => {
+      const since = new Date();
+      since.setMonth(since.getMonth() - input.months);
+      const quotes = await prisma.quote.findMany({
+        where: {
+          userId: ctx.user.id,
+          companyId: input.companyId,
+          status: { not: 'DRAFT' },
+          createdAt: { gte: since },
+        },
+        select: { status: true, total: true, createdAt: true, sentAt: true, acceptedAt: true, rejectedAt: true },
+      });
+      const byMonth = new Map<string, { sent: number; won: number; valueSent: number; valueWon: number; decisionDays: number[] }>();
+      for (const q of quotes) {
+        const at = q.sentAt ?? q.createdAt;
+        const key = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
+        const m = byMonth.get(key) ?? { sent: 0, won: 0, valueSent: 0, valueWon: 0, decisionDays: [] };
+        m.sent++;
+        m.valueSent += Number(q.total);
+        const won = q.status === 'ACCEPTED' || q.status === 'CONVERTED';
+        if (won) {
+          m.won++;
+          m.valueWon += Number(q.total);
+        }
+        const decidedAt = q.acceptedAt ?? q.rejectedAt;
+        if (decidedAt && q.sentAt) {
+          m.decisionDays.push((decidedAt.getTime() - q.sentAt.getTime()) / 86400000);
+        }
+        byMonth.set(key, m);
+      }
+      return [...byMonth.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, m]) => ({
+          month,
+          quotesSent: m.sent,
+          quotesWon: m.won,
+          winRatePct: m.sent > 0 ? (m.won / m.sent) * 100 : 0,
+          valueSent: m.valueSent,
+          valueWon: m.valueWon,
+          avgDaysToDecision: m.decisionDays.length
+            ? m.decisionDays.reduce((a, b) => a + b, 0) / m.decisionDays.length
+            : null,
+        }));
+    }),
+
+  /** Open quotes (SENT/VIEWED) bucketed by age — feeds aging nudges (spec §3.10). */
+  aging: protectedProcedure
+    .input(z.object({ companyId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const open = await prisma.quote.findMany({
+        where: {
+          userId: ctx.user.id,
+          companyId: input.companyId,
+          status: { in: ['SENT', 'VIEWED'] },
+        },
+        select: {
+          id: true, quoteNumber: true, status: true, total: true, sentAt: true, createdAt: true,
+          customer: { select: { id: true, name: true } },
+          lead: { select: { id: true, name: true } },
+        },
+        orderBy: { sentAt: 'asc' },
+      });
+      const now = Date.now();
+      const buckets = { '0-7': [] as any[], '8-14': [] as any[], '15-30': [] as any[], '30+': [] as any[] };
+      for (const q of open) {
+        const ageDays = Math.floor((now - (q.sentAt ?? q.createdAt).getTime()) / 86400000);
+        const entry = { ...q, ageDays, name: q.customer?.name ?? q.lead?.name ?? null };
+        if (ageDays <= 7) buckets['0-7'].push(entry);
+        else if (ageDays <= 14) buckets['8-14'].push(entry);
+        else if (ageDays <= 30) buckets['15-30'].push(entry);
+        else buckets['30+'].push(entry);
+      }
+      return { buckets, totalOpen: open.length };
     }),
 });

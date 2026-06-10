@@ -49,6 +49,8 @@ model User {
   @@index([active])
 
   activities      Activity[]
+  jobs            Job[]
+  jobAssignments  JobAssignment[]
 }
 
 model RefreshToken {
@@ -149,6 +151,7 @@ model Customer {
   activities          Activity[]
 
   @@index([primaryCompanyId])
+  jobs                Job[]
 }
 
 model Service {
@@ -183,6 +186,10 @@ model Service {
   @@index([code])
   @@index([category])
   @@index([customerTag])
+
+  // Business OS pricebook (spec §3.4): COGS per unit; margin = price - cost
+  unitCost        Decimal?
+  quoteLineItems  QuoteLineItem[]
 }
 
 model Invoice {
@@ -256,6 +263,7 @@ model Invoice {
   company         Company?  @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
+  job             Job?
 }
 
 model LineItem {
@@ -438,6 +446,7 @@ model Location {
   updatedAt       DateTime  @updatedAt
 
   @@index([customerId])
+  jobs            Job[]
 }
 
 model PriceOverride {
@@ -824,6 +833,7 @@ model Quote {
   company         Company?  @relation(fields: [companyId], references: [id])
 
   @@index([companyId])
+  jobs            Job[]
 }
 
 model QuoteLineItem {
@@ -843,6 +853,11 @@ model QuoteLineItem {
   updatedAt       DateTime  @updatedAt
 
   @@index([quoteId])
+
+  // Business OS pricebook (spec §3.4): cost snapshot at quote time
+  serviceId       String?
+  service         Service?  @relation(fields: [serviceId], references: [id])
+  unitCost        Decimal?
 }
 
 model LeadNote {
@@ -1335,6 +1350,7 @@ model Company {
   quotes           Quote[]
   revenueEvents    RevenueEvent[]
   activities       Activity[]
+  jobs             Job[]
 }
 
 model TaxAccount {
@@ -1676,4 +1692,92 @@ model Activity {
   @@index([leadId, occurredAt])
   @@index([companyId, occurredAt])
   @@index([userId, occurredAt])
+}
+
+// ============ Business OS (Phase 2): field-service jobs ============
+
+enum JobStatus {
+  REQUESTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CLOSED
+  CANCELLED
+}
+
+// Field-service job (spec §3.4): Request -> Quote -> Job -> Closeout -> auto-Invoice.
+// CLOSED requires closeout and creates the linked Invoice; payment of that
+// invoice emits the FIELD_SERVICE RevenueEvent (jobs never write the spine).
+model Job {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id])
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id])
+  quoteId        String?
+  quote          Quote?    @relation(fields: [quoteId], references: [id])
+
+  jobNumber      String
+  title          String
+  description    String?
+  status         JobStatus @default(REQUESTED)
+
+  // Scheduling + route/day view
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  routeOrder     Int?
+
+  // Costing
+  estimatedCost  Decimal?
+  actualCost     Decimal?
+
+  // Closeout (the crew packet)
+  completedAt    DateTime?
+  closeoutNotes  String?
+  checklist      Json?     // [{item, done, doneAt, by}]
+  customerNotes  String?
+
+  invoiceId      String?   @unique
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  assignments    JobAssignment[]
+  photos         JobPhoto[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, jobNumber])
+  @@index([companyId, status])
+  @@index([scheduledStart])
+  @@index([customerId])
+}
+
+model JobAssignment {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String?  // "lead" | "crew"
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, userId])
+  @@index([userId])
+}
+
+model JobPhoto {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  imageUrl  String?
+  imageData Bytes?
+  caption   String?
+  phase     String   @default("after") // "before" | "during" | "after"
+  takenAt   DateTime @default(now())
+
+  @@index([jobId])
 }
