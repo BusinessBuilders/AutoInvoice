@@ -1,24 +1,37 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { PrismaClient } from '@prisma/client';
-import { execSync } from 'child_process';
 
-const prisma = new PrismaClient();
+// SAFETY GUARD: tests run ONLY against the testcontainers database started by
+// global-setup.ts. If the URL file is missing we refuse to run rather than
+// fall back to whatever DATABASE_URL happens to be in the environment — the
+// old harness could bind to the real database and wipe it in beforeEach.
+const TEST_DB_URL_FILE = path.join(__dirname, '..', '..', '.jest-test-db-url');
+if (!fs.existsSync(TEST_DB_URL_FILE)) {
+  throw new Error(
+    'Test database not initialized (missing .jest-test-db-url). ' +
+      'Refusing to run tests against ambient DATABASE_URL.'
+  );
+}
+const testDbUrl = fs.readFileSync(TEST_DB_URL_FILE, 'utf8').trim();
+process.env.NODE_ENV = 'test';
+process.env.DATABASE_URL = testDbUrl;
 
-beforeAll(async () => {
-  // Set test environment
-  process.env.NODE_ENV = 'test';
-  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgresql://test:test@localhost:5432/test';
-
-  // Run migrations
-  execSync('npx prisma migrate deploy', { stdio: 'inherit' });
+// URL passed explicitly so this client can never bind to an ambient database.
+const prisma = new PrismaClient({
+  datasources: { db: { url: testDbUrl } },
 });
 
 afterAll(async () => {
-  // Cleanup
   await prisma.$disconnect();
 });
 
 beforeEach(async () => {
-  // Clean database before each test
+  // Clean container database before each test (FK-safe order: children first).
+  // Business OS tables (optional chaining: models exist once Phase 1 schema lands)
+  await (prisma as any).revenueEvent?.deleteMany?.();
+  await (prisma as any).activity?.deleteMany?.();
+
   // Accounting tables
   await prisma.journalLine.deleteMany();
   await prisma.journalEntry.deleteMany();
@@ -34,6 +47,7 @@ beforeEach(async () => {
   await prisma.check.deleteMany();
   await prisma.invoice.deleteMany();
   await prisma.customer.deleteMany();
+  await (prisma as any).company?.deleteMany?.();
   await prisma.user.deleteMany();
 });
 

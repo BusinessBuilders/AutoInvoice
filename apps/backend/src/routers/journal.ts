@@ -49,8 +49,14 @@ export const journalRouter = router({
           userId: ctx.user.id,
           ...(status && { status }),
           ...(sourceType && { sourceType }),
-          ...(startDate && { entryDate: { gte: startDate } }),
-          ...(endDate && { entryDate: { lte: endDate } }),
+          ...(startDate || endDate
+            ? {
+                entryDate: {
+                  ...(startDate && { gte: startDate }),
+                  ...(endDate && { lte: endDate }),
+                },
+              }
+            : {}),
           ...(accountId && {
             lines: {
               some: {

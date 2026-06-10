@@ -68,3 +68,4 @@ claudedocs/
 
 # Test scripts
 apps/backend/scripts/
+.jest-test-db-url

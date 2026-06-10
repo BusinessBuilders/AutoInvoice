@@ -1,0 +1,31 @@
+              View "public.v_company_cash_daily"
+       Column       |  Type  | Collation | Nullable | Default 
+--------------------+--------+-----------+----------+---------
+ company_id         | text   |           |          | 
+ date               | date   |           |          | 
+ gross_inflow_cents | bigint |           |          | 
+ expenses_cents     | bigint |           |          | 
+ net_cents          | bigint |           |          | 
+
+                   View "public.v_ytd_pulse"
+       Column        |  Type   | Collation | Nullable | Default 
+---------------------+---------+-----------+----------+---------
+ year                | integer |           |          | 
+ company_id          | text    |           |          | 
+ ytd_inflow_cents    | bigint  |           |          | 
+ ytd_expenses_cents  | bigint  |           |          | 
+ ytd_supernova_cents | bigint  |           |          | 
+ ytd_net_cents       | bigint  |           |          | 
+
+          View "public.v_super_nova_burn"
+  Column  |  Type  | Collation | Nullable | Default 
+----------+--------+-----------+----------+---------
+ date     | date   |           |          | 
+ category | text   |           |          | 
+ cents    | bigint |           |          | 
+
+    proname     |                                                                                            pg_get_function_result                                                                                             
+----------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ f_project_cash | TABLE(status text, company_id text, projected_net_cents bigint, band_low_cents bigint, band_high_cents bigint, confidence numeric, method text, reconciled_through date, required_through date, message text)
+(1 row)
+

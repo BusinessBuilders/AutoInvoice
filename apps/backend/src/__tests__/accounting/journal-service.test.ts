@@ -41,6 +41,7 @@ describe('Journal Service', () => {
     // Create test accounts (system will also create these, but we need IDs)
     const cashAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.CASH,
         name: 'Cash',
         accountType: AccountType.ASSET,
@@ -53,6 +54,7 @@ describe('Journal Service', () => {
 
     const arAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE,
         name: 'Accounts Receivable',
         accountType: AccountType.ASSET,
@@ -65,6 +67,7 @@ describe('Journal Service', () => {
 
     const revenueAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.SERVICE_REVENUE,
         name: 'Service Revenue',
         accountType: AccountType.REVENUE,
@@ -77,6 +80,7 @@ describe('Journal Service', () => {
 
     const taxAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.SALES_TAX_PAYABLE,
         name: 'Sales Tax Payable',
         accountType: AccountType.LIABILITY,
@@ -89,6 +93,7 @@ describe('Journal Service', () => {
 
     const expenseAccount = await prisma.account.create({
       data: {
+        userId,
         code: '5000',
         name: 'Operating Expenses',
         accountType: AccountType.EXPENSE,
@@ -277,6 +282,7 @@ describe('Journal Service', () => {
     it('should create DR AR, CR Revenue entry', async () => {
       const customer = await prisma.customer.create({
         data: {
+          userId,
           name: 'Test Customer',
           email: 'customer@test.com',
           phone: '555-1234',
@@ -285,6 +291,7 @@ describe('Journal Service', () => {
 
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-001',
           customerId: customer.id,
           issueDate: new Date('2024-01-15'),
@@ -324,6 +331,7 @@ describe('Journal Service', () => {
     it('should handle sales tax correctly', async () => {
       const customer = await prisma.customer.create({
         data: {
+          userId,
           name: 'Test Customer',
           email: 'customer@test.com',
           phone: '555-1234',
@@ -332,6 +340,7 @@ describe('Journal Service', () => {
 
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-002',
           customerId: customer.id,
           issueDate: new Date('2024-01-15'),
@@ -368,6 +377,7 @@ describe('Journal Service', () => {
     it('should create DR Cash, CR AR entry', async () => {
       const customer = await prisma.customer.create({
         data: {
+          userId,
           name: 'Test Customer',
           email: 'customer@test.com',
           phone: '555-1234',
@@ -376,6 +386,7 @@ describe('Journal Service', () => {
 
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-003',
           customerId: customer.id,
           issueDate: new Date('2024-01-15'),
@@ -414,6 +425,7 @@ describe('Journal Service', () => {
     it('should create DR Expense, CR Cash entry', async () => {
       const expenseCategory = await prisma.expenseCategory.create({
         data: {
+          userId,
           name: 'Materials',
           accountId: expenseAccountId,
         },
@@ -467,6 +479,7 @@ describe('Journal Service', () => {
     it('should throw error if category has no linked account', async () => {
       const categoryNoAccount = await prisma.expenseCategory.create({
         data: {
+          userId,
           name: 'No Account Category',
           // No accountId linked
         },
@@ -522,6 +535,7 @@ describe('Journal Service', () => {
     it('should link to invoice when provided', async () => {
       const customer = await prisma.customer.create({
         data: {
+          userId,
           name: 'Test Customer',
           email: 'customer@test.com',
           phone: '555-1234',
@@ -530,6 +544,7 @@ describe('Journal Service', () => {
 
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-004',
           customerId: customer.id,
           issueDate: new Date(),

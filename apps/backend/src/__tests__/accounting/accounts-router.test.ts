@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { PrismaClient, AccountType, BalanceType } from '@prisma/client';
+import { accountsRouter } from '../../routers/accounts';
 
 const prisma = new PrismaClient();
 
 describe('Accounts Router', () => {
   let userId: string;
+  let caller: ReturnType<typeof accountsRouter.createCaller>;
 
   beforeEach(async () => {
     // Clean up
@@ -22,11 +24,15 @@ describe('Accounts Router', () => {
       },
     });
     userId = user.id;
-  });
 
-  // NOTE: These tests verify the business logic that would be used by the accounts router.
-  // The router itself uses tRPC procedures which require more complex setup.
-  // For full router testing, consider integration tests with a test server.
+    // Authenticated tRPC caller for the accounts router
+    caller = accountsRouter.createCaller({
+      req: {} as any,
+      res: {} as any,
+      userId,
+      prisma,
+    } as any);
+  });
 
   describe('Account CRUD Operations', () => {
     it('should list accounts with filters', async () => {
@@ -34,6 +40,7 @@ describe('Accounts Router', () => {
       await prisma.account.createMany({
         data: [
           {
+            userId,
             code: '1000',
             name: 'Cash',
             accountType: AccountType.ASSET,
@@ -41,6 +48,7 @@ describe('Accounts Router', () => {
             active: true,
           },
           {
+            userId,
             code: '1100',
             name: 'Accounts Receivable',
             accountType: AccountType.ASSET,
@@ -48,6 +56,7 @@ describe('Accounts Router', () => {
             active: true,
           },
           {
+            userId,
             code: '5000',
             name: 'Expenses',
             accountType: AccountType.EXPENSE,
@@ -57,9 +66,7 @@ describe('Accounts Router', () => {
         ],
       });
 
-      const result = await prisma.account.findMany({
-        where: { active: true },
-      });
+      const result = await caller.list({ active: true });
 
       expect(result).toHaveLength(2);
       expect(result.every(a => a.active)).toBe(true);
@@ -69,12 +76,14 @@ describe('Accounts Router', () => {
       await prisma.account.createMany({
         data: [
           {
+            userId,
             code: '1000',
             name: 'Cash',
             accountType: AccountType.ASSET,
             balanceType: BalanceType.DEBIT,
           },
           {
+            userId,
             code: '4000',
             name: 'Revenue',
             accountType: AccountType.REVENUE,
@@ -83,9 +92,7 @@ describe('Accounts Router', () => {
         ],
       });
 
-      const result = await prisma.account.findMany({
-        where: { accountType: AccountType.ASSET },
-      });
+      const result = await caller.list({ accountType: AccountType.ASSET });
 
       expect(result).toHaveLength(1);
       expect(result[0].accountType).toBe(AccountType.ASSET);
@@ -95,6 +102,7 @@ describe('Accounts Router', () => {
       await prisma.account.createMany({
         data: [
           {
+            userId,
             code: '1000',
             name: 'Petty Cash',
             accountType: AccountType.ASSET,
@@ -102,6 +110,7 @@ describe('Accounts Router', () => {
             description: 'Small cash fund',
           },
           {
+            userId,
             code: '1100',
             name: 'Bank Account',
             accountType: AccountType.ASSET,
@@ -110,9 +119,7 @@ describe('Accounts Router', () => {
         ],
       });
 
-      const result = await prisma.account.findMany({
-        where: { search: 'cash' },
-      });
+      const result = await caller.list({ search: 'cash' });
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toContain('Cash');
@@ -121,14 +128,12 @@ describe('Accounts Router', () => {
 
   describe('create', () => {
     it('should create account with unique code', async () => {
-      const result = await prisma.account.create({
-        data: {
-          code: '1050',
-          name: 'Savings Account',
-          accountType: AccountType.ASSET,
-          balanceType: BalanceType.DEBIT,
-          description: 'Business savings',
-        },
+      const result = await caller.create({
+        code: '1050',
+        name: 'Savings Account',
+        accountType: AccountType.ASSET,
+        balanceType: BalanceType.DEBIT,
+        description: 'Business savings',
       });
 
       expect(result.id).toBeTruthy();
@@ -137,52 +142,43 @@ describe('Accounts Router', () => {
       expect(result.level).toBe(0); // No parent
 
       const account = await prisma.account.findUnique({
-        where: { code: '1050' },
+        where: { userId_code: { userId, code: '1050' } },
       });
       expect(account).toBeTruthy();
     });
 
     it('should reject duplicate account codes', async () => {
-      await prisma.account.create({
-        data: {
-          code: '1000',
-          name: 'Cash',
-          accountType: AccountType.ASSET,
-          balanceType: BalanceType.DEBIT,
-        },
+      await caller.create({
+        code: '1000',
+        name: 'Cash',
+        accountType: AccountType.ASSET,
+        balanceType: BalanceType.DEBIT,
       });
 
       await expect(
-        prisma.account.create({
-          data: {
-            code: '1000',
-            name: 'Duplicate Cash',
-            accountType: AccountType.ASSET,
-            balanceType: BalanceType.DEBIT,
-          },
+        caller.create({
+          code: '1000',
+          name: 'Duplicate Cash',
+          accountType: AccountType.ASSET,
+          balanceType: BalanceType.DEBIT,
         })
       ).rejects.toThrow(/already exists/i);
     });
 
     it('should set correct level when parent specified', async () => {
-      const parent = await prisma.account.create({
-        data: {
-          code: '1000',
-          name: 'Current Assets',
-          accountType: AccountType.ASSET,
-          balanceType: BalanceType.DEBIT,
-          level: 0,
-        },
+      const parent = await caller.create({
+        code: '1000',
+        name: 'Current Assets',
+        accountType: AccountType.ASSET,
+        balanceType: BalanceType.DEBIT,
       });
 
-      const result = await prisma.account.create({
-        data: {
-          code: '1010',
-          name: 'Cash',
-          accountType: AccountType.ASSET,
-          balanceType: BalanceType.DEBIT,
-          parentId: parent.id,
-        },
+      const result = await caller.create({
+        code: '1010',
+        name: 'Cash',
+        accountType: AccountType.ASSET,
+        balanceType: BalanceType.DEBIT,
+        parentId: parent.id,
       });
 
       expect(result.level).toBe(1);
@@ -191,14 +187,12 @@ describe('Accounts Router', () => {
 
     it('should reject if parent does not exist', async () => {
       await expect(
-        prisma.account.create({
-          data: {
-            code: '1010',
-            name: 'Cash',
-            accountType: AccountType.ASSET,
-            balanceType: BalanceType.DEBIT,
-            parentId: 'non-existent-id',
-          },
+        caller.create({
+          code: '1010',
+          name: 'Cash',
+          accountType: AccountType.ASSET,
+          balanceType: BalanceType.DEBIT,
+          parentId: 'non-existent-id',
         })
       ).rejects.toThrow(/not found/i);
     });
@@ -208,6 +202,7 @@ describe('Accounts Router', () => {
     it('should update non-system account', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -216,12 +211,10 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.update({
-        where: { id: account.id },
-        data: {
-          name: 'Updated Cash Account',
-          description: 'New description',
-        },
+      const result = await caller.update({
+        id: account.id,
+        name: 'Updated Cash Account',
+        description: 'New description',
       });
 
       expect(result.name).toBe('Updated Cash Account');
@@ -231,6 +224,7 @@ describe('Accounts Router', () => {
     it('should prevent updating system accounts', async () => {
       const systemAccount = await prisma.account.create({
         data: {
+          userId,
           code: '1200',
           name: 'Accounts Receivable',
           accountType: AccountType.ASSET,
@@ -240,11 +234,9 @@ describe('Accounts Router', () => {
       });
 
       await expect(
-        prisma.account.update({
-          where: { id: systemAccount.id },
-          data: {
-            name: 'Modified AR',
-          },
+        caller.update({
+          id: systemAccount.id,
+          name: 'Modified AR',
         })
       ).rejects.toThrow(/system-managed/i);
     });
@@ -252,6 +244,7 @@ describe('Accounts Router', () => {
     it('should validate unique code on update', async () => {
       const account1 = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Account 1',
           accountType: AccountType.ASSET,
@@ -261,6 +254,7 @@ describe('Accounts Router', () => {
 
       const account2 = await prisma.account.create({
         data: {
+          userId,
           code: '1100',
           name: 'Account 2',
           accountType: AccountType.ASSET,
@@ -269,11 +263,9 @@ describe('Accounts Router', () => {
       });
 
       await expect(
-        prisma.account.update({
-          where: { id: account2.id },
-          data: {
-            code: '1000', // Duplicate
-          },
+        caller.update({
+          id: account2.id,
+          code: '1000', // Duplicate
         })
       ).rejects.toThrow(/already exists/i);
     });
@@ -281,6 +273,7 @@ describe('Accounts Router', () => {
     it('should prevent circular parent references', async () => {
       const parent = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Parent',
           accountType: AccountType.ASSET,
@@ -290,6 +283,7 @@ describe('Accounts Router', () => {
 
       const child = await prisma.account.create({
         data: {
+          userId,
           code: '1010',
           name: 'Child',
           accountType: AccountType.ASSET,
@@ -300,11 +294,9 @@ describe('Accounts Router', () => {
       });
 
       await expect(
-        prisma.account.update({
-          where: { id: parent.id },
-          data: {
-            parentId: child.id, // Circular!
-          },
+        caller.update({
+          id: parent.id,
+          parentId: child.id, // Circular!
         })
       ).rejects.toThrow(/child account/i);
     });
@@ -314,6 +306,7 @@ describe('Accounts Router', () => {
     it('should soft delete non-system account by setting inactive', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -323,12 +316,7 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.update({
-        where: { id: account.id },
-        data: {
-          active: false,
-        },
-      });
+      const result = await caller.delete({ id: account.id });
 
       expect(result.active).toBe(false);
 
@@ -341,6 +329,7 @@ describe('Accounts Router', () => {
     it('should prevent deleting system accounts', async () => {
       const systemAccount = await prisma.account.create({
         data: {
+          userId,
           code: '1200',
           name: 'Accounts Receivable',
           accountType: AccountType.ASSET,
@@ -350,15 +339,14 @@ describe('Accounts Router', () => {
       });
 
       await expect(
-        prisma.account.delete({
-          where: { id: systemAccount.id },
-        })
+        caller.delete({ id: systemAccount.id })
       ).rejects.toThrow(/system-managed/i);
     });
 
     it('should prevent deleting accounts with children', async () => {
       const parent = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Parent',
           accountType: AccountType.ASSET,
@@ -368,6 +356,7 @@ describe('Accounts Router', () => {
 
       await prisma.account.create({
         data: {
+          userId,
           code: '1010',
           name: 'Child',
           accountType: AccountType.ASSET,
@@ -378,9 +367,7 @@ describe('Accounts Router', () => {
       });
 
       await expect(
-        prisma.account.delete({
-          where: { id: parent.id },
-        })
+        caller.delete({ id: parent.id })
       ).rejects.toThrow(/child accounts/i);
     });
   });
@@ -389,6 +376,7 @@ describe('Accounts Router', () => {
     it('should calculate balance correctly for debit account', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -397,8 +385,9 @@ describe('Accounts Router', () => {
       });
 
       // Create journal entry
-      const entry = await prisma.journalEntry.create({
+      await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000001',
           entryDate: new Date('2024-01-15'),
           description: 'Test entry',
@@ -429,9 +418,7 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.findUnique({
-        where: { id: account.id },
-      });
+      const result = await caller.getBalance({ id: account.id });
 
       // Debit account: debits increase, credits decrease
       // 100 + 50 - 30 = 120
@@ -442,6 +429,7 @@ describe('Accounts Router', () => {
     it('should calculate balance correctly for credit account', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '4000',
           name: 'Revenue',
           accountType: AccountType.REVENUE,
@@ -449,8 +437,9 @@ describe('Accounts Router', () => {
         },
       });
 
-      const entry = await prisma.journalEntry.create({
+      await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000001',
           entryDate: new Date('2024-01-15'),
           description: 'Test entry',
@@ -475,9 +464,7 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.findUnique({
-        where: { id: account.id },
-      });
+      const result = await caller.getBalance({ id: account.id });
 
       // Credit account: credits increase, debits decrease
       // 200 - 50 = 150
@@ -488,6 +475,7 @@ describe('Accounts Router', () => {
     it('should filter by asOfDate', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -498,6 +486,7 @@ describe('Accounts Router', () => {
       // Entry before cutoff
       await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000001',
           entryDate: new Date('2024-01-10'),
           description: 'Before',
@@ -514,6 +503,7 @@ describe('Accounts Router', () => {
       // Entry after cutoff
       await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000002',
           entryDate: new Date('2024-01-20'),
           description: 'After',
@@ -527,8 +517,9 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.findUnique({
-        where: { id: account.id },
+      const result = await caller.getBalance({
+        id: account.id,
+        asOfDate: new Date('2024-01-15'),
       });
 
       // Should only include entry from 01-10, not 01-20
@@ -538,6 +529,7 @@ describe('Accounts Router', () => {
     it('should only include POSTED entries', async () => {
       const account = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -548,6 +540,7 @@ describe('Accounts Router', () => {
       // Posted entry
       await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000001',
           entryDate: new Date(),
           description: 'Posted',
@@ -564,6 +557,7 @@ describe('Accounts Router', () => {
       // Draft entry (should not count)
       await prisma.journalEntry.create({
         data: {
+          userId,
           entryNumber: 'JE-000002',
           entryDate: new Date(),
           description: 'Draft',
@@ -577,9 +571,7 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.findUnique({
-        where: { id: account.id },
-      });
+      const result = await caller.getBalance({ id: account.id });
 
       expect(result.balance).toBe(100);
     });
@@ -590,6 +582,7 @@ describe('Accounts Router', () => {
       // Create hierarchical accounts
       const assets = await prisma.account.create({
         data: {
+          userId,
           code: '1000',
           name: 'Assets',
           accountType: AccountType.ASSET,
@@ -600,6 +593,7 @@ describe('Accounts Router', () => {
 
       const currentAssets = await prisma.account.create({
         data: {
+          userId,
           code: '1100',
           name: 'Current Assets',
           accountType: AccountType.ASSET,
@@ -609,8 +603,9 @@ describe('Accounts Router', () => {
         },
       });
 
-      const cash = await prisma.account.create({
+      await prisma.account.create({
         data: {
+          userId,
           code: '1110',
           name: 'Cash',
           accountType: AccountType.ASSET,
@@ -620,10 +615,7 @@ describe('Accounts Router', () => {
         },
       });
 
-      const result = await prisma.account.findMany({
-        where: {},
-        include: { children: true },
-      });
+      const result = await caller.getHierarchy({});
 
       expect(result).toHaveLength(1); // One root (Assets)
       expect(result[0].code).toBe('1000');
@@ -637,12 +629,14 @@ describe('Accounts Router', () => {
       await prisma.account.createMany({
         data: [
           {
+            userId,
             code: '1000',
             name: 'Assets',
             accountType: AccountType.ASSET,
             balanceType: BalanceType.DEBIT,
           },
           {
+            userId,
             code: '4000',
             name: 'Revenue',
             accountType: AccountType.REVENUE,
@@ -651,9 +645,7 @@ describe('Accounts Router', () => {
         ],
       });
 
-      const result = await prisma.account.findMany({
-        where: { accountType: AccountType.ASSET },
-      });
+      const result = await caller.getHierarchy({ accountType: AccountType.ASSET });
 
       expect(result).toHaveLength(1);
       expect(result[0].accountType).toBe(AccountType.ASSET);
@@ -663,6 +655,7 @@ describe('Accounts Router', () => {
       await prisma.account.createMany({
         data: [
           {
+            userId,
             code: '1000',
             name: 'Active Account',
             accountType: AccountType.ASSET,
@@ -670,6 +663,7 @@ describe('Accounts Router', () => {
             active: true,
           },
           {
+            userId,
             code: '1100',
             name: 'Inactive Account',
             accountType: AccountType.ASSET,
@@ -679,9 +673,7 @@ describe('Accounts Router', () => {
         ],
       });
 
-      const result = await prisma.account.findMany({
-        where: {},
-      });
+      const result = await caller.getHierarchy({});
 
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Active Account');
