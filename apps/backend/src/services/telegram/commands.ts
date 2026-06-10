@@ -490,13 +490,30 @@ export async function handleTextMessage(ctx: Context) {
 }
 
 /**
+ * Resolve the owner user ID for Telegram-created records.
+ * Telegram operates outside the tRPC auth context, so we associate all
+ * Telegram-created records with the account owner.
+ */
+async function getOwnerUserId(): Promise<string> {
+  const owner = await prisma.user.findFirstOrThrow({
+    where: { role: 'OWNER', active: true },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  return owner.id;
+}
+
+/**
  * Create invoice from parsed data
  */
 async function createInvoiceFromData(ctx: Context, invoiceData: any) {
   try {
+    const ownerUserId = await getOwnerUserId();
+
     // Find or create customer
     let customer = await prisma.customer.findFirst({
       where: {
+        userId: ownerUserId,
         OR: [
           { name: { equals: invoiceData.customerName, mode: 'insensitive' } },
           { nickname: { has: invoiceData.customerName } }
@@ -507,6 +524,7 @@ async function createInvoiceFromData(ctx: Context, invoiceData: any) {
     if (!customer) {
       customer = await prisma.customer.create({
         data: {
+          userId: ownerUserId,
           name: invoiceData.customerName,
           nickname: [invoiceData.customerName],
           tags: ['telegram']
@@ -531,6 +549,7 @@ async function createInvoiceFromData(ctx: Context, invoiceData: any) {
     // Create invoice
     const invoice = await prisma.invoice.create({
       data: {
+        userId: ownerUserId,
         customerId: customer.id,
         invoiceNumber,
         serviceDate: new Date(invoiceData.serviceDate),

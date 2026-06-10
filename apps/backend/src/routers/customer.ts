@@ -41,16 +41,19 @@ export const customerRouter = router({
       const customers = await ctx.prisma.customer.findMany({
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
-        where: search
-          ? {
-              OR: [
-                { name: { contains: search, mode: 'insensitive' } },
-                { email: { contains: search, mode: 'insensitive' } },
-                { phone: { contains: search } },
-                { company: { contains: search, mode: 'insensitive' } },
-              ],
-            }
-          : undefined,
+        where: {
+          userId: ctx.userId,
+          ...(search
+            ? {
+                OR: [
+                  { name: { contains: search, mode: 'insensitive' } },
+                  { email: { contains: search, mode: 'insensitive' } },
+                  { phone: { contains: search } },
+                  { company: { contains: search, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -70,8 +73,8 @@ export const customerRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const customer = await ctx.prisma.customer.findUnique({
-        where: { id: input.id },
+      const customer = await ctx.prisma.customer.findFirst({
+        where: { id: input.id, userId: ctx.userId },
         include: {
           invoices: {
             orderBy: { createdAt: 'desc' },
@@ -97,21 +100,19 @@ export const customerRouter = router({
   create: protectedProcedure
     .input(createCustomerSchema)
     .mutation(async ({ ctx, input }) => {
-      // Generate embedding for semantic search
       const embedding = await generateCustomerEmbedding({
         name: input.name,
         nickname: input.nickname,
         company: input.company,
       });
 
-      // Create customer without embedding first
       const customer = await ctx.prisma.customer.create({
         data: {
           ...input,
+          userId: ctx.userId,
         },
       });
 
-      // Then update with embedding via raw SQL
       if (embedding) {
         await ctx.prisma.$executeRaw`
           UPDATE "Customer"
@@ -129,11 +130,10 @@ export const customerRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
 
-      // Regenerate embedding if relevant fields changed
       let embedding: number[] | null = null;
       if (data.name || data.nickname || data.company !== undefined) {
-        const existing = await ctx.prisma.customer.findUnique({
-          where: { id },
+        const existing = await ctx.prisma.customer.findFirst({
+          where: { id, userId: ctx.userId },
         });
 
         if (existing) {
@@ -145,15 +145,14 @@ export const customerRouter = router({
         }
       }
 
-      // Update customer data without embedding first
+      const owned = await ctx.prisma.customer.findFirst({ where: { id, userId: ctx.userId } });
+      if (!owned) throw new Error('Customer not found');
+
       const customer = await ctx.prisma.customer.update({
         where: { id },
-        data: {
-          ...data,
-        },
+        data,
       });
 
-      // Then update embedding via raw SQL if it was regenerated
       if (embedding) {
         await ctx.prisma.$executeRaw`
           UPDATE "Customer"
@@ -169,9 +168,9 @@ export const customerRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.customer.delete({
-        where: { id: input.id },
-      });
+      const owned = await ctx.prisma.customer.findFirst({ where: { id: input.id, userId: ctx.userId } });
+      if (!owned) throw new Error('Customer not found');
+      return ctx.prisma.customer.delete({ where: { id: input.id } });
     }),
 
   // Search by nickname or name
@@ -180,6 +179,7 @@ export const customerRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.customer.findMany({
         where: {
+          userId: ctx.userId,
           OR: [
             { name: { contains: input.query, mode: 'insensitive' } },
             { nickname: { has: input.query } },
@@ -210,7 +210,7 @@ export const customerRouter = router({
     });
 
     return customers
-      .filter((c) => c.addressLine1) // Only return customers with addresses
+      .filter((c) => c.addressLine1)
       .map((c) => ({
         id: c.id,
         name: c.name,

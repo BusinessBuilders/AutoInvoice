@@ -122,8 +122,11 @@ export const smartTemplatesRouter = router({
         nickname: z.array(z.string()).optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      const customer = await smartTemplates.quickAddCustomer(input);
+    .mutation(async ({ input, ctx }) => {
+      const customer = await smartTemplates.quickAddCustomer({
+        ...input,
+        userId: ctx.user.id,
+      });
       return customer;
     }),
 

@@ -349,6 +349,7 @@ Be friendly but not pushy. Give them an easy out if they're not interested.`;
       // Create customer
       const customer = await prisma.customer.create({
         data: {
+          userId: ctx.user.id,
           name: lead.name,
           phone: lead.phone,
           email: input.additionalInfo?.email || lead.email,

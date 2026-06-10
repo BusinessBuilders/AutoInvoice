@@ -78,7 +78,7 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
   const brandColor = hexToRgb(options.brandColor || '#2563eb');
 
   let currentY = height - 40;
-  const startY = currentY; // Save the starting Y position for company info
+  const startY = currentY;
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // LETTERHEAD / LOGO
@@ -87,17 +87,27 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
   if (options.logoPath && fs.existsSync(options.logoPath)) {
     try {
       const logoBytes = fs.readFileSync(options.logoPath);
-      const logoImage = await pdfDoc.embedPng(logoBytes);
-      const logoDims = logoImage.scale(0.3);
+      const ext = options.logoPath.toLowerCase();
+      const logoImage = ext.endsWith('.jpg') || ext.endsWith('.jpeg')
+        ? await pdfDoc.embedJpg(logoBytes)
+        : await pdfDoc.embedPng(logoBytes);
+
+      const maxLogoWidth = 200;
+      const maxLogoHeight = 90;
+      const nativeW = logoImage.width;
+      const nativeH = logoImage.height;
+      const scaleFactor = Math.min(maxLogoWidth / nativeW, maxLogoHeight / nativeH);
+      const logoW = nativeW * scaleFactor;
+      const logoH = nativeH * scaleFactor;
 
       page.drawImage(logoImage, {
         x: 50,
-        y: currentY - logoDims.height,
-        width: logoDims.width,
-        height: logoDims.height,
+        y: currentY - logoH,
+        width: logoW,
+        height: logoH,
       });
 
-      currentY -= logoDims.height + 20;
+      currentY -= logoH + 15;
     } catch (error) {
       logger.warn('Failed to embed logo:', error);
     }
@@ -107,7 +117,9 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
   const companyInfo = options.companyInfo || getCompanyInfo();
   drawCompanyInfo(page, regularFont, companyInfo, width - 50, startY);
 
-  currentY -= 100;
+  // Ensure minimum spacing below company info block (6 lines × 12px + padding)
+  const companyInfoBottom = startY - (Object.values(companyInfo).filter(Boolean).length * 12) - 10;
+  currentY = Math.min(currentY, companyInfoBottom) - 15;
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // INVOICE HEADER
@@ -244,8 +256,8 @@ async function generateProfessionalTemplate(invoice: any, options: InvoicePdfOpt
     });
   }
 
-  // Right side - Dates
-  let rightY = height - 220;
+  // Right side - Dates (start just below the INVOICE header bar)
+  let rightY = currentY;
 
   const dateInfo = [
     { label: 'Invoice Date:', value: invoice.issueDate.toLocaleDateString() },

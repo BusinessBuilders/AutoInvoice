@@ -270,6 +270,7 @@ export const tallyRouter = router({
       const invoice = await ctx.prisma.invoice.create({
         data: {
           invoiceNumber,
+          userId,
           customerId: tally.customerId,
           locationId: tally.locationId,
           serviceAddress: tally.serviceAddress,

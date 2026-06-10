@@ -322,6 +322,7 @@ export const leadBusinessCardRouter = router({
       // Create customer from lead data
       const customer = await prisma.customer.create({
         data: {
+          userId: ctx.user.id,
           name: lead.name,
           phone: lead.phone,
           email: lead.email || null,

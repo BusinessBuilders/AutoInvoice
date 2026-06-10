@@ -234,6 +234,7 @@ export const voiceRouter = router({
         const invoice = await ctx.prisma.invoice.create({
           data: {
             invoiceNumber,
+            userId,
             customerId: tally.customerId,
             locationId: tally.locationId,
             serviceAddress: tally.serviceAddress,
@@ -390,6 +391,7 @@ export const voiceRouter = router({
         // Auto-create the customer from voice
         const newCustomer = await ctx.prisma.customer.create({
           data: {
+            userId,
             name: parsed.pendingCustomer || customerName,
             nickname: [parsed.pendingCustomer || customerName],
           },
@@ -492,6 +494,7 @@ export const voiceRouter = router({
         const invoice = await ctx.prisma.invoice.create({
           data: {
             invoiceNumber,
+            userId,
             customerId,
             serviceDate: new Date(parsed.date),
             dueDate: new Date(parsed.date), // Due on receipt
@@ -691,6 +694,7 @@ export const voiceRouter = router({
         const invoice = await ctx.prisma.invoice.create({
           data: {
             invoiceNumber,
+            userId,
             customerId,
             serviceDate: new Date(parsed.date),
             dueDate: new Date(parsed.date), // Due on receipt

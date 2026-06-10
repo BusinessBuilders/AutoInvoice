@@ -65,15 +65,16 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
   let pendingCustomer: string | undefined;
   let customerIsNew = false;
 
-  // Find customer (by name or nickname)
-  let customer = await findCustomer(aiParsed.customerName);
+  // Find customer (by name or nickname, scoped to this user)
+  let customer = await findCustomer(aiParsed.customerName, input.userId);
 
   if (!customer) {
     if (autoCreateCustomer) {
-      // Auto-create the new customer
+      // Auto-create the new customer (scoped to this user)
       customer = await quickAddCustomer({
         name: aiParsed.customerName,
         nickname: [aiParsed.customerName],
+        userId: input.userId,
       });
       customerIsNew = true;
       warnings.push(`✨ New customer "${customer.name}" auto-created`);
@@ -241,6 +242,10 @@ export async function parseQuickInvoice(input: QuickInvoiceInput): Promise<Quick
  * Create invoice from quick input
  */
 export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any> {
+  if (!input.userId) {
+    throw new Error('userId is required to create an invoice');
+  }
+
   const parsed = await parseQuickInvoice(input);
 
   // Generate invoice number
@@ -258,6 +263,7 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
   const invoice = await prisma.invoice.create({
     data: {
       invoiceNumber,
+      userId: input.userId,
       customerId: parsed.customer.id,
       serviceDate: parsed.date,
       serviceAddress: parsed.serviceLocation,
@@ -297,25 +303,35 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
 }
 
 /**
- * Find customer by name or nickname (AI vector search + fallback)
+ * Find customer by name or nickname (AI vector search + fallback), scoped to userId
  */
-async function findCustomer(nameQuery: string): Promise<any> {
+async function findCustomer(nameQuery: string, userId?: string): Promise<any> {
   // Try vector similarity search first (AI-powered semantic matching)
   const queryEmbedding = await generateEmbedding(nameQuery);
 
   if (queryEmbedding) {
-    const customers = await prisma.$queryRaw<any[]>`
-      SELECT
-        id, name, email, phone, company, nickname,
-        1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
-      FROM "Customer"
-      WHERE embedding IS NOT NULL
-      ORDER BY similarity DESC
-      LIMIT 3
-    `;
+    const customers = userId
+      ? await prisma.$queryRaw<any[]>`
+          SELECT
+            id, name, email, phone, company, nickname,
+            1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+          FROM "Customer"
+          WHERE embedding IS NOT NULL
+            AND "userId" = ${userId}
+          ORDER BY similarity DESC
+          LIMIT 3
+        `
+      : await prisma.$queryRaw<any[]>`
+          SELECT
+            id, name, email, phone, company, nickname,
+            1 - (embedding <=> ${`[${queryEmbedding.join(',')}]`}::vector(1536)) as similarity
+          FROM "Customer"
+          WHERE embedding IS NOT NULL
+          ORDER BY similarity DESC
+          LIMIT 3
+        `;
 
     if (customers.length > 0 && customers[0].similarity > 0.7) {
-      // High confidence match
       return customers[0];
     }
   }
@@ -323,6 +339,7 @@ async function findCustomer(nameQuery: string): Promise<any> {
   // Fallback to exact match
   let customer = await prisma.customer.findFirst({
     where: {
+      ...(userId && { userId }),
       OR: [
         { name: { equals: nameQuery, mode: 'insensitive' } },
         { nickname: { has: nameQuery } },
@@ -334,6 +351,7 @@ async function findCustomer(nameQuery: string): Promise<any> {
   if (!customer) {
     customer = await prisma.customer.findFirst({
       where: {
+        ...(userId && { userId }),
         OR: [
           { name: { contains: nameQuery, mode: 'insensitive' } },
           { company: { contains: nameQuery, mode: 'insensitive' } },
@@ -523,9 +541,14 @@ export async function quickAddCustomer(data: {
   phone?: string;
   address?: string;
   nickname?: string[];
+  userId?: string;
 }): Promise<any> {
+  if (!data.userId) {
+    throw new Error('userId is required to create a customer');
+  }
   return prisma.customer.create({
     data: {
+      userId: data.userId,
       name: data.name,
       email: data.email,
       phone: data.phone,

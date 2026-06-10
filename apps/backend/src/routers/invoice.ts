@@ -58,6 +58,7 @@ export const invoiceRouter = router({
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
         where: {
+          userId: ctx.userId,
           ...(status && { status }),
           ...(customerId && { customerId }),
           // Date range filtering
@@ -95,8 +96,8 @@ export const invoiceRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const invoice = await ctx.prisma.invoice.findUnique({
-        where: { id: input.id },
+      const invoice = await ctx.prisma.invoice.findFirst({
+        where: { id: input.id, userId: ctx.userId },
         include: {
           customer: true,
           location: true,
@@ -149,6 +150,7 @@ export const invoiceRouter = router({
       return ctx.prisma.invoice.create({
         data: {
           ...invoiceData,
+          userId: ctx.userId,
           invoiceNumber,
           issueDate: finalIssueDate,
           dueDate: finalDueDate,
@@ -192,8 +194,8 @@ export const invoiceRouter = router({
       const { id, lineItems, taxRate, discount, issueDate, dueDate, paymentTerms, ...invoiceData } = input;
 
       // Get current invoice to preserve existing values
-      const currentInvoice = await ctx.prisma.invoice.findUnique({
-        where: { id },
+      const currentInvoice = await ctx.prisma.invoice.findFirst({
+        where: { id, userId: ctx.userId },
         include: { lineItems: true },
       });
 
@@ -274,9 +276,9 @@ export const invoiceRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Get current invoice to check previous status
-      const currentInvoice = await ctx.prisma.invoice.findUnique({
-        where: { id: input.id },
+      // Get current invoice to check previous status (and verify ownership)
+      const currentInvoice = await ctx.prisma.invoice.findFirst({
+        where: { id: input.id, userId: ctx.userId },
       });
 
       if (!currentInvoice) {
@@ -380,6 +382,12 @@ export const invoiceRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const invoice = await ctx.prisma.invoice.findFirst({
+        where: { id: input.id, userId: ctx.userId },
+      });
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
       return ctx.prisma.invoice.delete({
         where: { id: input.id },
       });
@@ -392,9 +400,9 @@ export const invoiceRouter = router({
       const { generateInvoicePdf } = await import('../services/pdf/professional-generator');
       const path = await import('path');
 
-      // Fetch invoice
-      const invoice = await ctx.prisma.invoice.findUnique({
-        where: { id: input.id },
+      // Fetch invoice (and verify ownership)
+      const invoice = await ctx.prisma.invoice.findFirst({
+        where: { id: input.id, userId: ctx.userId },
         include: {
           customer: true,
           lineItems: {
@@ -407,8 +415,9 @@ export const invoiceRouter = router({
         throw new Error('Invoice not found');
       }
 
-      // Fetch user branding
+      // Fetch user branding (scoped to the authenticated user)
       const user = await ctx.prisma.user.findFirst({
+        where: { id: ctx.userId },
         select: {
           logoPath: true,
           brandColors: true,
@@ -452,22 +461,24 @@ export const invoiceRouter = router({
 
   // Get stats
   stats: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.userId;
     const [total, draft, sent, paid, overdue] = await Promise.all([
-      ctx.prisma.invoice.count(),
-      ctx.prisma.invoice.count({ where: { status: InvoiceStatus.DRAFT } }),
-      ctx.prisma.invoice.count({ where: { status: InvoiceStatus.SENT } }),
-      ctx.prisma.invoice.count({ where: { status: InvoiceStatus.PAID } }),
-      ctx.prisma.invoice.count({ where: { status: InvoiceStatus.OVERDUE } }),
+      ctx.prisma.invoice.count({ where: { userId } }),
+      ctx.prisma.invoice.count({ where: { userId, status: InvoiceStatus.DRAFT } }),
+      ctx.prisma.invoice.count({ where: { userId, status: InvoiceStatus.SENT } }),
+      ctx.prisma.invoice.count({ where: { userId, status: InvoiceStatus.PAID } }),
+      ctx.prisma.invoice.count({ where: { userId, status: InvoiceStatus.OVERDUE } }),
     ]);
 
     const totalRevenue = await ctx.prisma.invoice.aggregate({
-      where: { status: InvoiceStatus.PAID },
+      where: { userId, status: InvoiceStatus.PAID },
       _sum: { total: true },
     });
 
     const outstandingRevenue = await ctx.prisma.invoice.aggregate({
       where: {
-        status: { in: [InvoiceStatus.SENT, InvoiceStatus.OVERDUE] }
+        userId,
+        status: { in: [InvoiceStatus.SENT, InvoiceStatus.OVERDUE] },
       },
       _sum: { total: true },
     });

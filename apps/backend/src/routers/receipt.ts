@@ -254,6 +254,7 @@ export const receiptRouter = router({
       const invoice = await prisma.invoice.create({
         data: {
           invoiceNumber,
+          userId: ctx.user.id,
           customerId: input.customerId,
           serviceDate: receipt.date,
           issueDate: new Date(),

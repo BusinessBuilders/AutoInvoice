@@ -274,6 +274,7 @@ export const quoteRouter = router({
         // Create customer from lead
         const customer = await prisma.customer.create({
           data: {
+            userId: ctx.user.id,
             name: quote.lead.name,
             phone: quote.lead.phone,
             email: quote.lead.email,
@@ -306,6 +307,7 @@ export const quoteRouter = router({
       const invoice = await prisma.invoice.create({
         data: {
           invoiceNumber,
+          userId: ctx.user.id,
           customerId,
           serviceDate: input.serviceDate || new Date(),
           issueDate: new Date(),

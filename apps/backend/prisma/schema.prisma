@@ -38,6 +38,8 @@ model User {
   refreshTokens   RefreshToken[]
   passwordResets  PasswordReset[]
   services        Service[]
+  customers       Customer[]
+  invoices        Invoice[]
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -87,6 +89,8 @@ model PasswordReset {
 
 model Customer {
   id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name            String
   email           String?   @unique
   phone           String?   @unique
@@ -128,6 +132,7 @@ model Customer {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
+  @@index([userId])
   @@index([email])
   @@index([phone])
   @@index([name])
@@ -169,6 +174,8 @@ model Service {
 
 model Invoice {
   id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   invoiceNumber   String    @unique
 
   // Customer
@@ -225,6 +232,7 @@ model Invoice {
   updatedAt       DateTime  @updatedAt
   sentAt          DateTime?
 
+  @@index([userId])
   @@index([customerId])
   @@index([status])
   @@index([serviceDate])
