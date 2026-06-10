@@ -478,4 +478,86 @@ Be friendly but not pushy. Give them an easy out if they're not interested.`;
 
       return { success: true };
     }),
+
+  /** Lead → Won → Subscription (spec §3.7). Reuses or creates the customer,
+   * creates the subscription, marks the lead WON. Eve's intake creates leads
+   * via lead.create / the create_lead MCP tool; this closes the loop. */
+  convertToSubscription: protectedProcedure
+    .input(
+      z.object({
+        leadId: z.string(),
+        companyId: z.string(),
+        name: z.string().min(1),
+        interval: z.enum(['MONTHLY', 'QUARTERLY', 'YEARLY']).default('MONTHLY'),
+        amount: z.number().positive(),
+        startDate: z.coerce.date().optional(),
+        notes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const lead = await prisma.lead.findFirst({
+        where: { id: input.leadId, userId: ctx.user.id },
+      });
+      if (!lead) throw new Error('Lead not found');
+      const company = await prisma.company.findFirst({
+        where: { id: input.companyId, userId: ctx.user.id },
+      });
+      if (!company) throw new Error('Company not found');
+
+      let customerId = lead.convertedToCustomerId;
+      if (!customerId) {
+        const customer = await prisma.customer.create({
+          data: {
+            userId: ctx.user.id,
+            name: lead.name,
+            phone: lead.phone,
+            email: lead.email,
+            primaryCompanyId: input.companyId,
+            tags: ['from-lead', 'subscription'],
+          },
+        });
+        customerId = customer.id;
+      }
+
+      const { advance } = await import('../services/subscriptions');
+      const startDate = input.startDate ?? new Date();
+      const subscription = await prisma.subscription.create({
+        data: {
+          userId: ctx.user.id,
+          companyId: input.companyId,
+          customerId,
+          leadId: lead.id,
+          name: input.name,
+          interval: input.interval,
+          amount: input.amount,
+          startDate,
+          currentPeriodEnd: advance(startDate, input.interval),
+          notes: input.notes,
+        },
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          status: LeadStatus.WON,
+          convertedToCustomerId: customerId,
+          convertedAt: new Date(),
+          companyId: lead.companyId ?? input.companyId,
+        },
+      });
+
+      await prisma.activity.create({
+        data: {
+          userId: ctx.user.id,
+          companyId: input.companyId,
+          customerId,
+          leadId: lead.id,
+          type: 'SYSTEM',
+          body: `Lead won — subscription "${input.name}" started ($${input.amount}/${input.interval.toLowerCase()})`,
+          source: 'system',
+        },
+      });
+
+      return { subscription, customerId };
+    }),
 });
