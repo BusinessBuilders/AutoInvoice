@@ -84,6 +84,12 @@ export const orderRouter = router({
         where: { id: input.id, userId: ctx.userId },
       });
       if (!order) throw new TRPCError({ code: 'NOT_FOUND', message: 'Order not found' });
+      if (input.customerId) {
+        const customer = await ctx.prisma.customer.findFirst({
+          where: { id: input.customerId, userId: ctx.userId },
+        });
+        if (!customer) throw new TRPCError({ code: 'NOT_FOUND', message: 'Customer not found' });
+      }
       return ctx.prisma.order.update({
         where: { id: order.id },
         data: { needsReview: false, customerId: input.customerId ?? order.customerId },
