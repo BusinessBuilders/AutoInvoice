@@ -51,6 +51,9 @@ model User {
   activities      Activity[]
   jobs            Job[]
   jobAssignments  JobAssignment[]
+  products        Product[]
+  orders          Order[]
+  ingestSources   IngestSource[]
 }
 
 model RefreshToken {
@@ -152,6 +155,7 @@ model Customer {
 
   @@index([primaryCompanyId])
   jobs                Job[]
+  orders              Order[]
 }
 
 model Service {
@@ -264,6 +268,7 @@ model Invoice {
 
   @@index([companyId])
   job             Job?
+  order           Order?
 }
 
 model LineItem {
@@ -1351,6 +1356,9 @@ model Company {
   revenueEvents    RevenueEvent[]
   activities       Activity[]
   jobs             Job[]
+  products         Product[]
+  orders           Order[]
+  ingestSources    IngestSource[]
 }
 
 model TaxAccount {
@@ -1780,4 +1788,119 @@ model JobPhoto {
   takenAt   DateTime @default(now())
 
   @@index([jobId])
+}
+
+// ============ Business OS (Phase 3): commerce ============
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CANCELLED
+}
+
+// Inventory-lite product catalog (spec §3.5): a stock counter, not a WMS.
+model Product {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  sku               String
+  name              String
+  description       String?
+  price             Decimal
+  cogs              Decimal?
+  stockQty          Int      @default(0)
+  lowStockThreshold Int      @default(0) // 0 = no restock alerts
+  active            Boolean  @default(true)
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  orderItems        OrderItem[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, active])
+}
+
+// Orders ingested from online stores (spec §3.5/3.6). Idempotent on
+// (companyId, source, externalId); PAID auto-creates Invoice + RevenueEvent.
+model Order {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id])
+  customerId     String?
+  customer       Customer?   @relation(fields: [customerId], references: [id])
+  source         String      // IngestSource.key ("stripe" | "shopify" | site key)
+  externalId     String
+  status         OrderStatus
+  currency       String      @default("USD")
+  subtotal       Decimal     @default(0)
+  taxAmount      Decimal     @default(0)
+  shippingAmount Decimal     @default(0)
+  discountAmount Decimal     @default(0)
+  total          Decimal
+  refundedAmount Decimal     @default(0)
+  placedAt       DateTime
+  paidAt         DateTime?
+  fulfilledAt    DateTime?
+  invoiceId      String?     @unique
+  invoice        Invoice?    @relation(fields: [invoiceId], references: [id])
+  // first-touch attribution (spec §3.8; Lead gets the same block in Phase 5)
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  utmTerm        String?
+  utmContent     String?
+  landingPage    String?
+  referrer       String?
+  needsReview    Boolean     @default(false) // unknown SKU / unmatched customer
+  rawPayload     Json
+  items          OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([companyId, source, externalId])
+  @@index([companyId, placedAt])
+  @@index([customerId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  sku       String
+  name      String
+  quantity  Int
+  unitPrice Decimal
+  unitCogs  Decimal? // snapshot of Product.cogs at ingestion
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Per-store webhook credentials (spec §3.6)
+model IngestSource {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id])
+  key        String    @unique // :sourceKey in the webhook URL
+  name       String
+  kind       String    // "stripe" | "shopify" | "custom"
+  secret     String    // HMAC-SHA256 secret
+  active     Boolean   @default(true)
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([companyId])
 }

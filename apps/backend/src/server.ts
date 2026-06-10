@@ -20,6 +20,18 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// Business OS order ingestion (spec §3.6) - raw body for HMAC verification,
+// MUST be before body parsing middleware
+app.get('/webhook/orders/health', (_req, res) => res.json({ status: 'ok' }));
+app.post(
+  '/webhook/orders/:sourceKey',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const { handleOrderWebhook } = await import('./services/commerce/webhook');
+    return handleOrderWebhook(req, res);
+  }
+);
+
 // Stripe webhook - MUST be before body parsing middleware
 // Stripe requires raw body for signature verification
 app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {

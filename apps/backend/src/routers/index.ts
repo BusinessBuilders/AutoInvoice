@@ -32,6 +32,8 @@ import { paymentsRouter } from './payments';
 import { activityRouter } from './activity';
 import { revenueEventsRouter } from './revenueEvents';
 import { jobRouter } from './job';
+import { productRouter } from './product';
+import { orderRouter } from './order';
 
 export const appRouter = router({
   auth: authRouter,
@@ -67,6 +69,8 @@ export const appRouter = router({
   activity: activityRouter,
   revenueEvents: revenueEventsRouter,
   job: jobRouter,
+  product: productRouter,
+  order: orderRouter,
 });
 
 export type AppRouter = typeof appRouter;
