@@ -144,3 +144,82 @@ export async function markPaymentFailed(subscriptionId: string, reason?: string)
     },
   });
 }
+
+// ---- Stripe wiring (uses the account's existing STRIPE_SECRET_KEY) ----
+
+/** Create a recurring Stripe payment link for a subscription. The customer
+ * subscribes through it; webhooks then drive renewals automatically. */
+export async function createStripeLinkForSubscription(subscriptionId: string) {
+  const Stripe = (await import('stripe')).default;
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) throw new Error('Stripe is not configured (STRIPE_SECRET_KEY missing)');
+  const stripe = new Stripe(key);
+
+  const sub = await prisma.subscription.findUnique({
+    where: { id: subscriptionId },
+    include: { customer: true },
+  });
+  if (!sub) throw new Error('Subscription not found');
+  if (sub.stripePaymentLinkUrl) return { url: sub.stripePaymentLinkUrl, existing: true };
+
+  const product = await stripe.products.create({ name: sub.name });
+  const recurring =
+    sub.interval === 'YEARLY'
+      ? { interval: 'year' as const }
+      : sub.interval === 'QUARTERLY'
+        ? { interval: 'month' as const, interval_count: 3 }
+        : { interval: 'month' as const };
+  const price = await stripe.prices.create({
+    product: product.id,
+    unit_amount: Math.round(Number(sub.amount) * 100),
+    currency: sub.currency.toLowerCase(),
+    recurring,
+  });
+  const link = await stripe.paymentLinks.create({
+    line_items: [{ price: price.id, quantity: 1 }],
+    metadata: { autoinvoiceSubscriptionId: sub.id },
+    subscription_data: { metadata: { autoinvoiceSubscriptionId: sub.id } },
+  });
+
+  await prisma.subscription.update({
+    where: { id: sub.id },
+    data: { stripePaymentLinkUrl: link.url },
+  });
+  logger.info('Stripe payment link created for subscription', { subscriptionId, url: link.url });
+  return { url: link.url, existing: false };
+}
+
+/** Webhook entry: invoice.paid / invoice.payment_failed for Stripe
+ * subscriptions. Resolves our Subscription via the Stripe subscription id
+ * (externalRef) or the metadata stamped on the payment link. */
+export async function handleStripeSubscriptionEvent(event: {
+  type: string;
+  stripeSubscriptionId?: string | null;
+  metadataSubscriptionId?: string | null;
+  paidAt?: Date;
+}) {
+  let sub =
+    (event.metadataSubscriptionId
+      ? await prisma.subscription.findUnique({ where: { id: event.metadataSubscriptionId } })
+      : null) ??
+    (event.stripeSubscriptionId
+      ? await prisma.subscription.findFirst({ where: { externalRef: event.stripeSubscriptionId } })
+      : null);
+  if (!sub) return null;
+
+  // first contact: remember the Stripe subscription id
+  if (event.stripeSubscriptionId && sub.externalRef !== event.stripeSubscriptionId) {
+    sub = await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { externalRef: event.stripeSubscriptionId },
+    });
+  }
+
+  if (event.type === 'invoice.paid') {
+    return recordRenewal(sub.id, event.paidAt ?? new Date());
+  }
+  if (event.type === 'invoice.payment_failed') {
+    return markPaymentFailed(sub.id, 'stripe payment failed');
+  }
+  return sub;
+}

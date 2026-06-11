@@ -1965,7 +1965,8 @@ model Subscription {
   churnReason       String?
   dunningStage      Int                @default(0) // 0 none; 1..3 escalating
   lastPaymentAt     DateTime?
-  externalRef       String?            // e.g. Stripe subscription id
+  externalRef          String?         // Stripe subscription id (set by webhook)
+  stripePaymentLinkUrl String?         // recurring payment link for the customer
   notes             String?
 
   createdAt         DateTime           @default(now())

@@ -115,6 +115,18 @@ export const subscriptionRouter = router({
       return markPaymentFailed(sub.id, input.reason);
     }),
 
+  /** Create (or fetch) the recurring Stripe payment link for a subscription. */
+  createStripeLink: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const sub = await ctx.prisma.subscription.findFirst({
+        where: { id: input.id, userId: ctx.userId },
+      });
+      if (!sub) throw new TRPCError({ code: 'NOT_FOUND', message: 'Subscription not found' });
+      const { createStripeLinkForSubscription } = await import('../services/subscriptions');
+      return createStripeLinkForSubscription(sub.id);
+    }),
+
   update: protectedProcedure
     .input(
       z.object({

@@ -87,6 +87,24 @@ app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (re
         break;
       }
 
+      case 'invoice.paid':
+      case 'invoice.payment_failed': {
+        const inv = event.data.object as Stripe.Invoice;
+        const stripeSubId = typeof (inv as any).subscription === 'string' ? (inv as any).subscription : (inv as any).subscription?.id;
+        if (stripeSubId) {
+          const { handleStripeSubscriptionEvent } = await import('./services/subscriptions');
+          const result = await handleStripeSubscriptionEvent({
+            type: event.type,
+            stripeSubscriptionId: stripeSubId,
+            metadataSubscriptionId: (inv as any).subscription_details?.metadata?.autoinvoiceSubscriptionId
+              ?? (inv.metadata as any)?.autoinvoiceSubscriptionId ?? null,
+            paidAt: new Date(((inv as any).status_transitions?.paid_at ?? event.created) * 1000),
+          });
+          if (result) logger.info(`Stripe ${event.type} → subscription synced`, { stripeSubId });
+        }
+        break;
+      }
+
       case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
         logger.info('PaymentIntent succeeded:', { id: paymentIntent.id });

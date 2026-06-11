@@ -29,6 +29,7 @@ export default function SubscriptionsPage() {
   const markFailed = trpc.subscription.markPaymentFailed.useMutation();
   const update = trpc.subscription.update.useMutation();
   const create = trpc.subscription.create.useMutation();
+  const stripeLink = trpc.subscription.createStripeLink.useMutation();
   const convertLead = trpc.lead.convertToSubscription.useMutation();
   const { data: wonLeads, refetch: refetchLeads } = trpc.lead.list.useQuery({ status: 'WON', limit: 20 });
   const [convertTarget, setConvertTarget] = useState<any | null>(null);
@@ -140,6 +141,9 @@ export default function SubscriptionsPage() {
                           dunning {s.dunningStage}/3
                         </span>
                       )}
+                      {s.externalRef && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">stripe</span>
+                      )}
                       {s.churnRisk && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
                           ⚠️ churn risk
@@ -154,6 +158,23 @@ export default function SubscriptionsPage() {
                   </div>
                   {s.status !== 'CANCELLED' && (
                     <div className="flex gap-2 flex-wrap">
+                      {s.stripePaymentLinkUrl ? (
+                        <button
+                          className="px-3 py-1.5 text-xs rounded-md bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                          onClick={() => { navigator.clipboard.writeText(s.stripePaymentLinkUrl); alert('Stripe payment link copied — send it to the customer. Renewals sync automatically.'); }}>
+                          💳 Copy Stripe link
+                        </button>
+                      ) : (
+                        <button
+                          className="px-3 py-1.5 text-xs rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+                          onClick={() => act(async () => {
+                            const r = await stripeLink.mutateAsync({ id: s.id });
+                            navigator.clipboard.writeText(r.url);
+                            alert('Stripe payment link created & copied. Customer subscribes once; renewals then record themselves via the Stripe webhook.');
+                          }, 'Create Stripe link')}>
+                          💳 Stripe link
+                        </button>
+                      )}
                       <button
                         className="px-3 py-1.5 text-xs rounded-md text-white bg-green-600 hover:bg-green-700"
                         onClick={() => act(() => recordRenewal.mutateAsync({ id: s.id }), 'Record renewal')}>

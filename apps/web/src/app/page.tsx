@@ -256,6 +256,19 @@ export default function Home() {
           </Link>
 
           <Link
+            href="/time-clock"
+            className="relative group bg-gradient-to-br from-slate-600 to-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🕐</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Time Clock</h3>
+                <p className="text-sm text-slate-200">Who&apos;s on the clock</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
             href="/attribution"
             className="relative group bg-gradient-to-br from-rose-500 to-red-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
           >

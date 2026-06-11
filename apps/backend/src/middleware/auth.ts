@@ -49,8 +49,17 @@ export const generateTokens = async (
 
   // Generate long-lived refresh token (7 days)
   const refreshToken = crypto.randomBytes(64).toString('hex');
+  // Parse "7d"/"12h"/"30m"/ms — parseInt("7d") is 7 MILLISECONDS, which made
+  // every refresh token expire at birth.
+  const parseDuration = (raw: string | undefined, fallbackMs: number): number => {
+    if (!raw) return fallbackMs;
+    const m = /^(\d+)\s*(ms|s|m|h|d)?$/.exec(raw.trim());
+    if (!m) return fallbackMs;
+    const mult = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2] ?? 'ms']!;
+    return parseInt(m[1], 10) * mult;
+  };
   const expiresAt = new Date(
-    Date.now() + (parseInt(env.REFRESH_TOKEN_EXPIRES_IN) || 7 * 24 * 60 * 60 * 1000)
+    Date.now() + parseDuration(env.REFRESH_TOKEN_EXPIRES_IN, 7 * 24 * 60 * 60 * 1000)
   );
 
   // Store refresh token in database
