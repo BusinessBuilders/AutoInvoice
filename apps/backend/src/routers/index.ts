@@ -37,6 +37,7 @@ import { orderRouter } from './order';
 import { subscriptionRouter } from './subscription';
 import { adSpendRouter } from './adSpend';
 import { companyRouter } from './company';
+import { timeClockRouter } from './timeClock';
 
 export const appRouter = router({
   auth: authRouter,
@@ -77,6 +78,7 @@ export const appRouter = router({
   subscription: subscriptionRouter,
   adSpend: adSpendRouter,
   company: companyRouter,
+  timeClock: timeClockRouter,
 });
 
 export type AppRouter = typeof appRouter;

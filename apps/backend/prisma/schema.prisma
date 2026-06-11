@@ -56,6 +56,7 @@ model User {
   ingestSources   IngestSource[]
   subscriptions   Subscription[]
   adSpends        AdSpend[]
+  timeEntries     TimeEntry[]
 }
 
 model RefreshToken {
@@ -2013,4 +2014,32 @@ model AutomationLog {
 
   @@unique([rule, entityType, entityId])
   @@index([companyId, firedAt])
+}
+
+// ============ Business OS: time clock (per .planning/spec-time-clock-service-hub.md §3.3,
+// extended with GPS stamps per 2026-06-11 decision: location at punch events, not
+// continuous tracking) ============
+
+model TimeEntry {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+
+  clockIn      DateTime
+  clockOut     DateTime?
+  totalMinutes Int?      // server-calculated on clockOut, never client-sent
+
+  notes        String?   // optional clock-out note from the employee
+
+  // GPS stamps (decimal degrees) captured at punch time when the phone allows it
+  clockInLat   Decimal?
+  clockInLng   Decimal?
+  clockOutLat  Decimal?
+  clockOutLng  Decimal?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([clockIn])
 }

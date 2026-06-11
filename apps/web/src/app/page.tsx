@@ -360,7 +360,7 @@ export default function Home() {
             <div className="px-6 py-4">
               {recentInvoicesData?.invoices && recentInvoicesData.invoices.length > 0 ? (
                 <div className="space-y-3">
-                  {recentInvoicesData.invoices.map((invoice) => (
+                  {(recentInvoicesData.invoices as any[]).map((invoice) => (
                     <Link
                       key={invoice.id}
                       href={`/invoices/${invoice.id}`}

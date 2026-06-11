@@ -29,6 +29,7 @@ afterAll(async () => {
 beforeEach(async () => {
   // Clean container database before each test (FK-safe order: children first).
   // Business OS tables (optional chaining: models exist once Phase 1 schema lands)
+  await (prisma as any).timeEntry?.deleteMany?.();
   await (prisma as any).revenueEvent?.deleteMany?.();
   await (prisma as any).activity?.deleteMany?.();
   await (prisma as any).automationLog?.deleteMany?.();

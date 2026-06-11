@@ -266,6 +266,10 @@ export const jobRouter = router({
         customerNotes: z.string().optional(),
         checklist: checklistSchema.optional(),
         actualCost: z.number().optional(),
+        // GPS stamp from the crew phone at completion (spec: punch-event
+        // stamps, not continuous tracking)
+        lat: z.number().min(-90).max(90).optional(),
+        lng: z.number().min(-180).max(180).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -282,7 +286,23 @@ export const jobRouter = router({
           actualCost: input.actualCost,
         },
       });
-      await logJobActivity(ctx, updated, `Job ${job.jobNumber} completed`);
+      await ctx.prisma.activity.create({
+        data: {
+          userId: ctx.userId,
+          companyId: updated.companyId,
+          customerId: updated.customerId,
+          type: 'SYSTEM',
+          body: `Job ${job.jobNumber} completed`,
+          source: 'system',
+          metadata: {
+            jobId: updated.id,
+            jobNumber: updated.jobNumber,
+            ...(input.lat != null && input.lng != null
+              ? { completedAt: { lat: input.lat, lng: input.lng } }
+              : {}),
+          },
+        },
+      });
       return updated;
     }),
 

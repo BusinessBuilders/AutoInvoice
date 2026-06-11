@@ -481,4 +481,48 @@ export const authRouter = router({
         message: 'Password reset successful. Please login with your new password.',
       };
     }),
+
+  /** Crew self-signup (spec: EMPLOYEE accounts, no owner dashboard). Gated by
+   * the CREW_SIGNUP_CODE the owner shares with the crew. */
+  registerEmployee: publicProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional(),
+        password: z.string().min(6),
+        inviteCode: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const expected = process.env.CREW_SIGNUP_CODE;
+      if (!expected) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Crew signup is not enabled (CREW_SIGNUP_CODE not configured)',
+        });
+      }
+      if (input.inviteCode !== expected) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid invite code' });
+      }
+      const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
+      if (existing) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'User with this email already exists' });
+      }
+      const hashedPassword = await bcrypt.hash(input.password, 10);
+      const user = await ctx.prisma.user.create({
+        data: {
+          email: input.email,
+          password: hashedPassword,
+          name: input.name,
+          phone: input.phone,
+          role: 'EMPLOYEE',
+        },
+      });
+      const tokens = await generateTokens(user.id);
+      return {
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        ...tokens,
+      };
+    }),
 });

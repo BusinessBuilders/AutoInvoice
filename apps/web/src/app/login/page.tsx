@@ -15,7 +15,10 @@ export default function LoginPage() {
     onSuccess: (data) => {
       localStorage.setItem('accessToken', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
-      router.push('/');
+      localStorage.setItem('userRole', data.user.role);
+      localStorage.setItem('userName', data.user.name);
+      // Crew members get the crew hub, not the owner dashboard
+      router.push(data.user.role === 'EMPLOYEE' ? '/crew' : '/');
     },
     onError: (error) => {
       setError(error.message);

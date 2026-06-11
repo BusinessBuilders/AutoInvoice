@@ -77,6 +77,30 @@ Verified end-to-end in a real browser (Playwright) against the production build:
 
 UI smoke artifacts (own isolated account, invisible to the real user): user `ui-smoke@autoinvoice.test`, company `ui-smoke-co`, one CLOSED job J-00001 with DRAFT invoice INV-000092 ($1.00 — consumed one number in the global invoice sequence).
 
+## Time clock + crew hub (2026-06-11)
+
+Implements the April time-clock spec (.planning/spec-time-clock-service-hub.md §3.3 — the
+TimeEntry table already existed in prod from that session; this added only GPS columns) fused
+with the Business OS crew model:
+
+- **`timeClock` router**: clockIn (returns the day's MISSION — the employee's assigned jobs,
+  route-ordered), clockOut (server-computed minutes), status (live timer + mission), myEntries,
+  teamStatus (owner/admin only: who's on the clock, since when, week totals, last punch GPS).
+  One open entry per user enforced in code AND by the existing DB partial unique index.
+- **Crew self-signup** at `/crew/signup`: public, gated by `CREW_SIGNUP_CODE` in the backend
+  .env (share it with the crew; rotate by editing .env). Creates EMPLOYEE accounts that
+  redirect to `/crew` on login — they never see the owner dashboard/accounting.
+- **`/crew` hub** (phone-first): big Clock In/Out button with live worked-time, today's mission
+  cards (map/tel links, customer notes), ▶ Start and one-tap **✅ Done with job** buttons.
+- **GPS decision**: location stamps at punch events (clock-in/out coordinates on TimeEntry,
+  job-completion coordinates in the timeline activity metadata) — deliberately NOT continuous
+  tracking (battery, privacy, complexity). A 6s hard timeout means ignored permission prompts
+  never block punching.
+- Browser-verified end-to-end: signup → login → /crew → clock in → mission shown → start →
+  done → clock out (4 new tests; 129 backend tests green).
+- Crew smoke artifacts: user `smoke-crew@autoinvoice.test`, one COMPLETED job + closed time
+  entry under the ui-smoke account.
+
 ## Operational notes
 
 - Test harness: testcontainers (`pgvector/pgvector:pg16`), schema via `db push`, views applied from the migration file; `setup.ts` refuses to run against ambient `DATABASE_URL` (the old harness could wipe the real DB).
