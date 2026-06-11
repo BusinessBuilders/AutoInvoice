@@ -61,6 +61,22 @@ New: `create_lead`, `log_activity`, `get_customer_360`, `ingest_order`, `list_ag
 
 A new record type (e.g. Robotics Partnership) is a typed Prisma model that (1) carries `companyId` + optional `customerId`, (2) emits revenue via `recordRevenueEvent` with `engine: OTHER` and a new `sourceType`, (3) surfaces on the timeline via Activities. No EAV.
 
+## Dashboard UI (2026-06-10, second pass)
+
+Five surfaces in `apps/web`, linked from a "Business OS" section on the home dashboard, all phone-friendly:
+
+| Page | What it does |
+|---|---|
+| `/jobs`, `/jobs/day`, `/jobs/[id]` | The crew packet: status/company filters, new-job modal with customer autocomplete; route-ordered day view with map + tel: links and customer notes; lifecycle buttons (schedule→start→complete→close), closeout checklist, before/during/after photo capture, crew assignment, auto-invoice banner |
+| `/revenue` | Net revenue + MRR + open-pipeline cards, revenue-by-engine bars, quote-aging buckets, recent revenue events feed; company + window filters |
+| `/subscriptions` | MRR rollup cards, dunning/churn badges, record-renewal / payment-failed / cancel-at-period-end actions, new-subscription modal |
+| `/products`, `/orders` | Catalog with COGS/margin and low-stock highlighting, stock adjust; orders with needs-review queue, fulfill action, refund display, invoice links; ingest-source management (HMAC secret shown exactly once with copy button + webhook instructions) |
+| `/attribution` | Ad-spend entry (upsert-corrected), monthly CAC/ROAS per channel (ROAS<1 highlighted red), ROAS per campaign, top customers by LTV |
+
+Verified end-to-end in a real browser (Playwright) against the production build: login → create job → schedule → start → complete (checklist + notes + cost) → close → invoice visible. Both services restarted onto the new builds (`node dist/index.js` on :4000 with the automations sweep registered; `next start` on :3000); all routes return 200 through `accounting.business-builder.online`.
+
+UI smoke artifacts (own isolated account, invisible to the real user): user `ui-smoke@autoinvoice.test`, company `ui-smoke-co`, one CLOSED job J-00001 with DRAFT invoice INV-000092 ($1.00 — consumed one number in the global invoice sequence).
+
 ## Operational notes
 
 - Test harness: testcontainers (`pgvector/pgvector:pg16`), schema via `db push`, views applied from the migration file; `setup.ts` refuses to run against ambient `DATABASE_URL` (the old harness could wipe the real DB).
