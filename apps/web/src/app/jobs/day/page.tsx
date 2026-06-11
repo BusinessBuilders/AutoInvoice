@@ -21,6 +21,15 @@ export default function JobsDayPage() {
     date: new Date(`${date}T12:00:00`),
     companyId: companyFilter === 'all' ? undefined : companyFilter,
   });
+  const weekStart = (() => {
+    const d = new Date(`${date}T12:00:00`);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
+    return d;
+  })();
+  const { data: week } = trpc.job.weekOverview.useQuery({
+    start: weekStart,
+    companyId: companyFilter === 'all' ? undefined : companyFilter,
+  });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -51,6 +60,29 @@ export default function JobsDayPage() {
             </select>
           </div>
         </div>
+
+        {/* Week strip — tap a day to jump */}
+        {week && (
+          <div className="grid grid-cols-7 gap-1.5 mb-6">
+            {week.map((d: any) => {
+              const selected = d.date === date;
+              const label = new Date(`${d.date}T12:00:00`).toLocaleDateString(undefined, { weekday: 'narrow' });
+              const dayNum = Number(d.date.slice(-2));
+              return (
+                <button key={d.date} onClick={() => setDate(d.date)}
+                  className={`rounded-lg py-2 text-center border ${
+                    selected ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}>
+                  <div className="text-[10px] uppercase opacity-70">{label}</div>
+                  <div className="text-sm font-semibold">{dayNum}</div>
+                  <div className={`text-[10px] ${selected ? 'text-indigo-100' : 'text-gray-400'}`}>
+                    {d.total > 0 ? `${d.done}/${d.total}` : '·'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="text-center py-12 text-gray-500">Loading route…</div>

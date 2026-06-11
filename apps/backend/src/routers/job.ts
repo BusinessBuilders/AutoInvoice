@@ -24,6 +24,26 @@ async function ownedJob(ctx: any, id: string) {
   return job;
 }
 
+// Owner sees everything; assigned crew see (and can work) their jobs.
+// Financial/scheduling actions (create, schedule, close, cancel, crew mgmt)
+// stay owner-only via ownedJob.
+function visibleJobsWhere(ctx: any) {
+  return {
+    OR: [
+      { userId: ctx.userId },
+      { assignments: { some: { userId: ctx.userId } } },
+    ],
+  };
+}
+
+async function workableJob(ctx: any, id: string) {
+  const job = await ctx.prisma.job.findFirst({
+    where: { id, ...visibleJobsWhere(ctx) },
+  });
+  if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Job not found' });
+  return job;
+}
+
 async function logJobActivity(ctx: any, job: any, body: string) {
   // Status history is visible on the customer timeline (spec §4)
   await ctx.prisma.activity.create({
@@ -94,7 +114,7 @@ export const jobRouter = router({
 
   get: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const job = await ctx.prisma.job.findFirst({
-      where: { id: input.id, userId: ctx.userId },
+      where: { id: input.id, ...visibleJobsWhere(ctx) },
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         location: true,
@@ -123,7 +143,7 @@ export const jobRouter = router({
     .query(async ({ ctx, input }) => {
       const items = await ctx.prisma.job.findMany({
         where: {
-          userId: ctx.userId,
+          ...visibleJobsWhere(ctx),
           companyId: input.companyId,
           customerId: input.customerId,
           status: input.status,
@@ -153,7 +173,7 @@ export const jobRouter = router({
 
       const jobs = await ctx.prisma.job.findMany({
         where: {
-          userId: ctx.userId,
+          ...visibleJobsWhere(ctx),
           companyId: input.companyId,
           scheduledStart: { gte: dayStart, lt: dayEnd },
           status: { in: [JobStatus.SCHEDULED, JobStatus.IN_PROGRESS, JobStatus.COMPLETED] },
@@ -166,6 +186,39 @@ export const jobRouter = router({
         orderBy: [{ routeOrder: { sort: 'asc', nulls: 'last' } }, { scheduledStart: 'asc' }],
       });
       return jobs;
+    }),
+
+  /** Job counts per day for a week — the schedule strip on the day view. */
+  weekOverview: protectedProcedure
+    .input(z.object({ start: z.coerce.date(), companyId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const weekStart = new Date(input.start);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 7);
+      const jobs = await ctx.prisma.job.findMany({
+        where: {
+          ...visibleJobsWhere(ctx),
+          companyId: input.companyId,
+          scheduledStart: { gte: weekStart, lt: weekEnd },
+          status: { in: [JobStatus.SCHEDULED, JobStatus.IN_PROGRESS, JobStatus.COMPLETED, JobStatus.CLOSED] },
+        },
+        select: { scheduledStart: true, status: true },
+      });
+      const days: { date: string; total: number; done: number }[] = [];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + i);
+        const dayJobs = jobs.filter(
+          (j) => j.scheduledStart && j.scheduledStart.toDateString() === d.toDateString()
+        );
+        days.push({
+          date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+          total: dayJobs.length,
+          done: dayJobs.filter((j) => j.status === JobStatus.COMPLETED || j.status === JobStatus.CLOSED).length,
+        });
+      }
+      return days;
     }),
 
   schedule: protectedProcedure
@@ -194,7 +247,7 @@ export const jobRouter = router({
     }),
 
   start: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-    const job = await ownedJob(ctx, input.id);
+    const job = await workableJob(ctx, input.id);
     assertTransition(job.status, JobStatus.IN_PROGRESS);
     const updated = await ctx.prisma.job.update({
       where: { id: job.id },
@@ -216,7 +269,7 @@ export const jobRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const job = await ownedJob(ctx, input.id);
+      const job = await workableJob(ctx, input.id);
       assertTransition(job.status, JobStatus.COMPLETED);
       const updated = await ctx.prisma.job.update({
         where: { id: job.id },
@@ -301,7 +354,7 @@ export const jobRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      await ownedJob(ctx, input.jobId);
+      await workableJob(ctx, input.jobId);
       if (!input.imageUrl && !input.imageData) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'imageUrl or imageData required' });
       }

@@ -68,6 +68,12 @@ export default function JobsPage() {
           </div>
           <div className="mt-4 flex space-x-3 md:mt-0">
             <Link
+              href="/jobs/schedule"
+              className="inline-flex items-center px-4 py-2 rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            >
+              📅 Schedule
+            </Link>
+            <Link
               href="/jobs/day"
               className="inline-flex items-center px-4 py-2 rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
             >

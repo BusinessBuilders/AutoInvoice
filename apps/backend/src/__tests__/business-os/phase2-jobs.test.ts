@@ -166,4 +166,54 @@ describe('Business OS Phase 2 — jobs + pricebook', () => {
     expect(aging.totalOpen).toBe(1);
     expect(aging.buckets['15-30']).toHaveLength(1);
   });
+
+  it('assigned crew can see and work their jobs but cannot close or schedule', async () => {
+    const owner = jobRouter.createCaller(ctx());
+    const crewUser = await prisma.user.create({
+      data: { email: 'tristan@test.com', password: 'x', name: 'Tristan', role: 'EMPLOYEE' },
+    });
+    const crewCtx = { req: {} as any, res: {} as any, userId: crewUser.id, prisma } as any;
+    const crew = jobRouter.createCaller(crewCtx);
+
+    const job = await owner.create({
+      companyId, customerId, title: 'Crew-visible job', estimatedCost: 50,
+      scheduledStart: new Date(),
+    });
+
+    // not assigned yet → invisible
+    expect((await crew.list({ limit: 10 })).items).toHaveLength(0);
+    await expect(crew.get({ id: job.id })).rejects.toThrow(/not found/i);
+
+    await owner.assignCrew({ jobId: job.id, userId: crewUser.id, role: 'lead' });
+
+    // assigned → visible in list, day view and detail
+    expect((await crew.list({ limit: 10 })).items).toHaveLength(1);
+    expect((await crew.dayView({ date: new Date() })).map((j) => j.id)).toContain(job.id);
+    expect((await crew.get({ id: job.id })).id).toBe(job.id);
+
+    // crew can work the job
+    await crew.start({ id: job.id });
+    await crew.complete({ id: job.id, closeoutNotes: 'done by crew' });
+
+    // but cannot close (invoice) or schedule — owner-only
+    await expect(crew.close({ id: job.id })).rejects.toThrow(/not found/i);
+    await expect(
+      crew.schedule({ id: job.id, scheduledStart: new Date() })
+    ).rejects.toThrow(/not found/i);
+
+    // owner closes and the invoice exists
+    const { invoice } = await owner.close({ id: job.id });
+    expect(invoice).not.toBeNull();
+  });
+
+  it('weekOverview counts scheduled jobs per day', async () => {
+    const jobs = jobRouter.createCaller(ctx());
+    await jobs.create({ companyId, customerId, title: 'Mon job', scheduledStart: new Date('2026-06-15T09:00:00') });
+    await jobs.create({ companyId, customerId, title: 'Wed job', scheduledStart: new Date('2026-06-17T09:00:00') });
+    const week = await jobs.weekOverview({ start: new Date('2026-06-15T00:00:00') });
+    expect(week).toHaveLength(7);
+    expect(week[0].total).toBe(1);
+    expect(week[2].total).toBe(1);
+    expect(week[1].total).toBe(0);
+  });
 });
