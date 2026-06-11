@@ -29,6 +29,10 @@ export default function SubscriptionsPage() {
   const markFailed = trpc.subscription.markPaymentFailed.useMutation();
   const update = trpc.subscription.update.useMutation();
   const create = trpc.subscription.create.useMutation();
+  const convertLead = trpc.lead.convertToSubscription.useMutation();
+  const { data: wonLeads, refetch: refetchLeads } = trpc.lead.list.useQuery({ status: 'WON', limit: 20 });
+  const [convertTarget, setConvertTarget] = useState<any | null>(null);
+  const [convForm, setConvForm] = useState({ name: '', amount: '', interval: 'MONTHLY' as 'MONTHLY' | 'QUARTERLY' | 'YEARLY', companyId: '' });
 
   // new subscription form
   const [name, setName] = useState('');
@@ -90,6 +94,31 @@ export default function SubscriptionsPage() {
           </div>
         </div>
 
+        {/* Won leads ready to convert (Eve intake closes here) */}
+        {!!wonLeads?.length && (
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="font-semibold text-gray-900 mb-3">Won leads — convert to subscription</h2>
+            <div className="space-y-2">
+              {wonLeads.map((l: any) => (
+                <div key={l.id} className="flex items-center justify-between text-sm flex-wrap gap-2">
+                  <div>
+                    <span className="text-gray-900 font-medium">{l.name}</span>
+                    <span className="text-gray-500 ml-2">{l.phone}{l.source ? ` · via ${l.source}` : ''}</span>
+                  </div>
+                  <button
+                    className="px-3 py-1.5 text-xs rounded-md text-white bg-cyan-600 hover:bg-cyan-700"
+                    onClick={() => {
+                      setConvertTarget(l);
+                      setConvForm({ name: `${l.name} — subscription`, amount: '', interval: 'MONTHLY', companyId: l.companyId ?? '' });
+                    }}>
+                    🔁 Convert to subscription
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* List */}
         {!subs?.length ? (
           <div className="bg-white rounded-lg shadow p-12 text-center text-gray-500">
@@ -145,6 +174,52 @@ export default function SubscriptionsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Convert lead modal */}
+        {convertTarget && (
+          <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900">Convert “{convertTarget.name}” to subscription</h2>
+              <input className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                placeholder="Subscription name" value={convForm.name}
+                onChange={(e) => setConvForm({ ...convForm, name: e.target.value })} />
+              <div className="flex gap-2">
+                <input className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm" type="number" step="0.01"
+                  placeholder="Amount" value={convForm.amount}
+                  onChange={(e) => setConvForm({ ...convForm, amount: e.target.value })} />
+                <select className="rounded-md border border-gray-300 px-3 py-2 text-sm" value={convForm.interval}
+                  onChange={(e) => setConvForm({ ...convForm, interval: e.target.value as any })}>
+                  <option value="MONTHLY">Monthly</option>
+                  <option value="QUARTERLY">Quarterly</option>
+                  <option value="YEARLY">Yearly</option>
+                </select>
+              </div>
+              <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm" value={convForm.companyId}
+                onChange={(e) => setConvForm({ ...convForm, companyId: e.target.value })}>
+                <option value="">Select company…</option>
+                {companies?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div className="flex justify-end gap-3 pt-2">
+                <button className="px-4 py-2 text-sm rounded-md border border-gray-300" onClick={() => setConvertTarget(null)}>Cancel</button>
+                <button
+                  className="px-4 py-2 text-sm rounded-md text-white bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50"
+                  disabled={convertLead.isPending || !convForm.name || !convForm.amount || !convForm.companyId}
+                  onClick={() =>
+                    act(async () => {
+                      await convertLead.mutateAsync({
+                        leadId: convertTarget.id, companyId: convForm.companyId,
+                        name: convForm.name, amount: Number(convForm.amount), interval: convForm.interval,
+                      });
+                      setConvertTarget(null);
+                      await refetchLeads();
+                    }, 'Convert lead')
+                  }>
+                  {convertLead.isPending ? 'Converting…' : 'Convert'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
