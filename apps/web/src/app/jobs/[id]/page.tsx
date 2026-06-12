@@ -24,6 +24,8 @@ export default function JobDetailPage() {
   const assignCrew = trpc.job.assignCrew.useMutation();
   const removeCrew = trpc.job.removeCrew.useMutation();
   const addPhoto = trpc.job.addPhoto.useMutation();
+  const addNote = trpc.job.addNote.useMutation();
+  const { data: notes, refetch: refetchNotes } = trpc.job.notes.useQuery({ jobId });
   const { data: team } = trpc.team.listMembers.useQuery(undefined, { retry: false });
 
   const [scheduleAt, setScheduleAt] = useState('');
@@ -35,12 +37,13 @@ export default function JobDetailPage() {
   const [newItem, setNewItem] = useState('');
   const [photoPhase, setPhotoPhase] = useState<'before' | 'during' | 'after'>('after');
   const [crewUserId, setCrewUserId] = useState('');
+  const [noteBody, setNoteBody] = useState('');
   const [closedInvoice, setClosedInvoice] = useState<{ invoiceNumber: string; id: string } | null>(null);
 
   if (isLoading) return <div className="min-h-screen bg-gray-50 p-12 text-center text-gray-500">Loading…</div>;
   if (!job) return <div className="min-h-screen bg-gray-50 p-12 text-center text-gray-500">Job not found</div>;
 
-  const items: ChecklistItem[] = checklist ?? ((job.checklist as ChecklistItem[]) || []);
+  const items: ChecklistItem[] = checklist ?? (((job as any).checklist as ChecklistItem[]) || []);
   const act = async (fn: () => Promise<unknown>, label: string) => {
     try {
       await fn();
@@ -238,6 +241,44 @@ export default function JobDetailPage() {
               </div>
             ))}
             {!job.photos.length && <p className="text-sm text-gray-500 col-span-4">No photos yet.</p>}
+          </div>
+        </div>
+
+        {/* Notes — crew + owner, any time */}
+        <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <h2 className="font-semibold text-gray-900 mb-3">Notes</h2>
+          <div className="flex gap-2 mb-4">
+            <textarea
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+              rows={2}
+              placeholder="Leave a note on this job — gate code, what you found, what's left…"
+              value={noteBody}
+              onChange={(e) => setNoteBody(e.target.value)}
+            />
+            <button
+              className="self-end px-4 py-2 text-sm rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+              disabled={addNote.isPending || !noteBody.trim()}
+              onClick={() =>
+                act(async () => {
+                  await addNote.mutateAsync({ jobId: job.id, body: noteBody.trim() });
+                  setNoteBody('');
+                  await refetchNotes();
+                }, 'Add note')
+              }>
+              {addNote.isPending ? 'Posting…' : 'Post'}
+            </button>
+          </div>
+          <div className="space-y-3">
+            {notes?.map((n: any) => (
+              <div key={n.id} className="rounded-md bg-gray-50 px-3 py-2">
+                <div className="text-xs text-gray-500">
+                  <span className="font-medium text-gray-700">{n.user?.name ?? 'Unknown'}</span>{' '}
+                  · {new Date(n.occurredAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </div>
+                <div className="text-sm text-gray-800 whitespace-pre-wrap">{n.body}</div>
+              </div>
+            ))}
+            {!notes?.length && <p className="text-sm text-gray-500">No notes yet.</p>}
           </div>
         </div>
 

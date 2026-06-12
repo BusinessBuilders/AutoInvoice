@@ -388,4 +388,39 @@ export const jobRouter = router({
         },
       });
     }),
+
+  /** Running notes thread on a job — crew and owner, any time. Notes are
+   * Activities (metadata.jobId), so they also appear on the customer timeline. */
+  addNote: protectedProcedure
+    .input(z.object({ jobId: z.string(), body: z.string().min(1).max(2000) }))
+    .mutation(async ({ ctx, input }) => {
+      const job = await workableJob(ctx, input.jobId);
+      return ctx.prisma.activity.create({
+        data: {
+          userId: ctx.userId,
+          companyId: job.companyId,
+          customerId: job.customerId,
+          type: 'NOTE',
+          body: input.body,
+          source: 'manual',
+          metadata: { jobId: job.id, jobNumber: job.jobNumber },
+        },
+      });
+    }),
+
+  notes: protectedProcedure
+    .input(z.object({ jobId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      await workableJob(ctx, input.jobId);
+      const notes = await ctx.prisma.activity.findMany({
+        where: {
+          type: 'NOTE',
+          metadata: { path: ['jobId'], equals: input.jobId },
+        },
+        include: { user: { select: { id: true, name: true } } },
+        orderBy: { occurredAt: 'desc' },
+        take: 100,
+      });
+      return notes;
+    }),
 });
