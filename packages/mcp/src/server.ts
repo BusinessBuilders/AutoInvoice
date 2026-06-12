@@ -128,6 +128,10 @@ HANDLERS["get_pipeline"] = getPipelineHandler;
 HANDLERS["list_jobs_today"] = listJobsTodayHandler;
 HANDLERS["get_revenue_summary"] = getRevenueSummaryHandler;
 
+import { searchTransactionsHandler, toolSpec as searchTransactionsSpec } from "./tools/search_transactions.js";
+TOOLS.push(searchTransactionsSpec);
+HANDLERS["search_transactions"] = searchTransactionsHandler;
+
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();
 

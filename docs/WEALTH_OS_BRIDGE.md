@@ -25,17 +25,21 @@ Company ids are slugs: `donovan-farms`, `business-builders`, `super-nova-robotic
 | `v_crm_win_rate` | company × month | quotes_sent, quotes_won, win_rate_pct, avg_days_to_decision |
 | `v_commerce_sales_daily` | company × date × channel | orders, units, revenue_cents, cogs_cents, margin_cents, refund_cents |
 | `v_attribution_cac_ltv` | company × month × channel | spend_cents, new_customers, cac_cents, attributed_revenue_cents, roas |
+| `v_transactions_search` | one row per bank transaction (split-safe: parents excluded, children included) | transaction_id, date, company_id, amount_cents, description, vendor (matched name or raw descriptor), category, account_name |
 
 Notes: `v_company_pnl_rollup` revenue comes from RevenueEvents (operational), not the GL —
 expenses come from the same tax-typed BankTransaction rules as `v_company_cash_daily`, so cash
 and P&L reconcile. Consolidated holding view = SUM across company_id.
 
-## New MCP tools (same server, `packages/mcp`, stdio + HTTP transports — 17 tools total)
+## New MCP tools (same server, `packages/mcp`, stdio + HTTP transports — 18 tools total)
 
 Reads: `get_revenue_summary` (by engine, windowed), `get_mrr`, `get_pipeline`,
 `get_attribution_report` (CAC/ROAS monthly), `list_aging_quotes`, `list_jobs_today` (crew
 packet), `get_customer_360` (lookup by id/email/phone/name; profile + LTV + every engine's
-history).
+history), `search_transactions` (transaction-level search over `v_transactions_search`:
+company/date/text/category/amount filters, ILIKE on description+vendor, limit 50 default /
+500 max, returns rows plus match_count and total_cents over ALL matches — answers "how much
+did I spend on Amazon" directly).
 Writes: `create_lead` (Eve intake; accepts utm_* for first-touch attribution), `log_activity`
 (calls/emails/notes onto the customer timeline), `ingest_order` (normalized order payload;
 requires the AutoInvoice backend running — set `AUTOINVOICE_API_URL`).
