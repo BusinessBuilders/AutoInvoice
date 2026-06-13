@@ -3,13 +3,17 @@
 import { trpc } from '@/lib/trpc';
 import Link from 'next/link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
 export default function CrewSignupPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', inviteCode: '' });
+  const searchParams = useSearchParams();
+  // Scanned from a printed flyer QR (/crew/signup?code=…) → prefill the code so
+  // the hire never has to type it and lands on the right business automatically.
+  const prefilledCode = searchParams.get('code') ?? '';
+  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', inviteCode: prefilledCode });
   const [error, setError] = useState('');
 
   const register = trpc.auth.registerEmployee.useMutation({
