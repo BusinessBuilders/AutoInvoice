@@ -482,8 +482,12 @@ export const authRouter = router({
       };
     }),
 
-  /** Crew self-signup (spec: EMPLOYEE accounts, no owner dashboard). Gated by
-   * the CREW_SIGNUP_CODE the owner shares with the crew. */
+  /** Crew self-signup (spec: EMPLOYEE accounts, no owner dashboard). The invite
+   * code routes the new hire to a specific business: each Company has its own
+   * crewSignupCode. The legacy single CREW_SIGNUP_CODE env var still works as a
+   * fallback that maps to a default company (CREW_DEFAULT_COMPANY_ID, or
+   * donovan-farms) so codes shared before per-business codes existed keep
+   * working. */
   registerEmployee: publicProcedure
     .input(
       z.object({
@@ -495,16 +499,26 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const expected = process.env.CREW_SIGNUP_CODE;
-      if (!expected) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'Crew signup is not enabled (CREW_SIGNUP_CODE not configured)',
-        });
+      // 1. Per-business code on the Company itself.
+      let company = await ctx.prisma.company.findFirst({
+        where: { crewSignupCode: input.inviteCode, active: true },
+        select: { id: true, name: true },
+      });
+      // 2. Backward-compatible global env code → default company.
+      if (!company) {
+        const envCode = process.env.CREW_SIGNUP_CODE;
+        if (envCode && input.inviteCode === envCode) {
+          const defaultId = process.env.CREW_DEFAULT_COMPANY_ID ?? 'donovan-farms';
+          company = await ctx.prisma.company.findFirst({
+            where: { id: defaultId, active: true },
+            select: { id: true, name: true },
+          });
+        }
       }
-      if (input.inviteCode !== expected) {
+      if (!company) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid invite code' });
       }
+
       const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
       if (existing) {
         throw new TRPCError({ code: 'CONFLICT', message: 'User with this email already exists' });
@@ -517,11 +531,13 @@ export const authRouter = router({
           name: input.name,
           phone: input.phone,
           role: 'EMPLOYEE',
+          companyId: company.id, // crew belongs to the business their code maps to
         },
       });
       const tokens = await generateTokens(user.id);
       return {
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        company: { id: company.id, name: company.name },
         ...tokens,
       };
     }),

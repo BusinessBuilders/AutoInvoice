@@ -17,6 +17,11 @@ model User {
   role            UserRole  @default(OWNER)
   phone           String?
   active          Boolean   @default(true)
+
+  // Crew membership: which business this user clocks time for.
+  // Null for OWNER/ADMIN, who span every company.
+  companyId       String?
+  company         Company?  @relation("CompanyCrew", fields: [companyId], references: [id])
   emailVerified   Boolean   @default(false)
   emailVerifiedAt DateTime?
   twoFactorEnabled Boolean  @default(false)
@@ -57,6 +62,9 @@ model User {
   subscriptions   Subscription[]
   adSpends        AdSpend[]
   timeEntries     TimeEntry[]
+  editedTimeEntries TimeEntry[] @relation("TimeEntryEditor")
+
+  @@index([companyId])
 }
 
 model RefreshToken {
@@ -1348,6 +1356,12 @@ model Company {
   // Settings
   active          Boolean   @default(true)
 
+  // Per-business crew invite code. The code a crew member types at
+  // /crew/signup routes them to THIS company (replaces the single global
+  // CREW_SIGNUP_CODE env var, which still works as a fallback to a default
+  // company for backward compatibility).
+  crewSignupCode  String?   @unique
+
   // Relations
   bankAccounts    BankAccount[]
   taxAccounts     TaxAccount[]
@@ -1375,6 +1389,8 @@ model Company {
   ingestSources    IngestSource[]
   subscriptions    Subscription[]
   adSpends         AdSpend[]
+  crew             User[]        @relation("CompanyCrew")
+  timeEntries      TimeEntry[]
 }
 
 model TaxAccount {
@@ -2026,11 +2042,22 @@ model TimeEntry {
   userId       String
   user         User      @relation(fields: [userId], references: [id])
 
+  // Business this shift is worked for. Copied from the user's companyId at
+  // clock-in; null for owner/admin punches or pre-migration rows.
+  companyId    String?
+  company      Company?  @relation(fields: [companyId], references: [id])
+
   clockIn      DateTime
   clockOut     DateTime?
   totalMinutes Int?      // server-calculated on clockOut, never client-sent
 
   notes        String?   // optional clock-out note from the employee
+
+  // Admin edit audit (forgotten punches, corrections, manual backfill).
+  // editedById is the owner/admin who last changed this entry.
+  editedById   String?
+  editedBy     User?     @relation("TimeEntryEditor", fields: [editedById], references: [id])
+  editedAt     DateTime?
 
   // GPS stamps (decimal degrees) captured at punch time when the phone allows it
   clockInLat   Decimal?
@@ -2042,5 +2069,6 @@ model TimeEntry {
   updatedAt    DateTime  @updatedAt
 
   @@index([userId])
+  @@index([companyId])
   @@index([clockIn])
 }
