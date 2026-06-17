@@ -15,8 +15,8 @@ describe("cli — command resolution", () => {
     for (const target of Object.values(ALIASES)) {
       expect(HANDLERS[target], `alias target ${target}`).toBeTypeOf("function");
     }
-    expect(TOOLS).toHaveLength(18);
-    expect(Object.keys(HANDLERS)).toHaveLength(18);
+    expect(TOOLS).toHaveLength(19);
+    expect(Object.keys(HANDLERS)).toHaveLength(19);
   });
 });
 

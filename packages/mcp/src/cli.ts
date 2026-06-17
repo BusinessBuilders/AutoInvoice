@@ -35,6 +35,7 @@ export const ALIASES: Record<string, string> = {
   pipeline: "get_pipeline",
   "jobs-today": "list_jobs_today",
   revenue: "get_revenue_summary",
+  "create-invoice": "create_invoice",
 };
 
 export function resolveCommand(cmd: string): string | null {
