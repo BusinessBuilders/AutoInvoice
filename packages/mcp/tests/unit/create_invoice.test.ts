@@ -37,4 +37,23 @@ describe("create_invoice", () => {
     await expect(createInvoiceHandler({ customer: {}, line_items: [] })).rejects.toThrow();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("rejects when the service token is missing without calling fetch", async () => {
+    delete process.env.AUTOINVOICE_SERVICE_TOKEN;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createInvoiceHandler({
+      customer: { name: "Brown" },
+      line_items: [{ description: "Mowing", quantity: 1, rate: 50 }],
+    })).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the backend error message when the response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: "boom from backend" }) }));
+    await expect(createInvoiceHandler({
+      customer: { name: "Brown" },
+      line_items: [{ description: "Mowing", quantity: 1, rate: 50 }],
+    })).rejects.toThrow("boom from backend");
+  });
 });

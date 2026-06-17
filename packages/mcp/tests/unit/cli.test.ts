@@ -11,7 +11,7 @@ describe("cli — command resolution", () => {
     expect(resolveCommand("nope")).toBeNull();
   });
 
-  it("every alias targets a registered handler; all 18 tools registered", () => {
+  it("every alias targets a registered handler; all 19 tools registered", () => {
     for (const target of Object.values(ALIASES)) {
       expect(HANDLERS[target], `alias target ${target}`).toBeTypeOf("function");
     }
