@@ -43,4 +43,50 @@ describe('eve-invoice: createStructuredInvoice', () => {
     }
     expect(await prisma.invoice.count()).toBe(0);
   });
+
+  it('creates a DRAFT invoice for a matched customer with correct totals and source=eve', async () => {
+    await prisma.customer.create({ data: { userId: ownerId, name: 'Brown Family' } });
+    const res = await createStructuredInvoice({
+      customer: { name: 'Brown Family' },
+      lineItems: [
+        { description: 'Mowing', quantity: 3, rate: 50 },
+        { description: 'Edging', quantity: 1, rate: 20 },
+      ],
+      serviceAddress: '14 Oak St',
+      serviceDate: '2026-06-15',
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.invoice.status).toBe('DRAFT');
+      expect(res.invoice.source).toBe('eve');
+      expect(res.invoice.companyId).toBe('donovan-farms');
+      expect(res.invoice.serviceAddress).toBe('14 Oak St');
+      expect(Number(res.invoice.subtotal)).toBe(170);
+      expect(Number(res.invoice.total)).toBe(170);
+      expect(res.invoice.lineItems).toHaveLength(2);
+      expect(res.invoice.userId).toBe(ownerId);
+    }
+  });
+
+  it('creates the customer when confirmCreateCustomer is true', async () => {
+    const res = await createStructuredInvoice({
+      customer: { name: 'Jim Hawthorne' },
+      lineItems: [{ description: 'Plowing', quantity: 1, rate: 75 }],
+      confirmCreateCustomer: true,
+    });
+    expect(res.ok).toBe(true);
+    const created = await prisma.customer.findFirst({ where: { name: 'Jim Hawthorne', userId: ownerId } });
+    expect(created).not.toBeNull();
+  });
+
+  it('defaults to donovan-farms and rejects an unknown company', async () => {
+    await prisma.customer.create({ data: { userId: ownerId, name: 'Default Co Cust' } });
+    const ok = await createStructuredInvoice({ customer: { name: 'Default Co Cust' }, lineItems: [{ description: 'X', quantity: 1, rate: 10 }] });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.invoice.companyId).toBe('donovan-farms');
+
+    await expect(
+      createStructuredInvoice({ customer: { name: 'Default Co Cust' }, lineItems: [{ description: 'X', quantity: 1, rate: 10 }], companyId: 'no-such-co' })
+    ).rejects.toThrow(/Unknown or inactive company/);
+  });
 });
