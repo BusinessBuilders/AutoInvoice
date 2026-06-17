@@ -69,3 +69,7 @@ HANDLERS["get_revenue_summary"] = getRevenueSummaryHandler;
 import { searchTransactionsHandler, toolSpec as searchTransactionsSpec } from "./tools/search_transactions.js";
 TOOLS.push(searchTransactionsSpec);
 HANDLERS["search_transactions"] = searchTransactionsHandler;
+
+import { createInvoiceHandler, toolSpec as createInvoiceSpec } from "./tools/create_invoice.js";
+TOOLS.push(createInvoiceSpec);
+HANDLERS["create_invoice"] = createInvoiceHandler;
