@@ -305,7 +305,7 @@ export async function createQuickInvoice(input: QuickInvoiceInput): Promise<any>
 /**
  * Find customer by name or nickname (AI vector search + fallback), scoped to userId
  */
-async function findCustomer(nameQuery: string, userId?: string): Promise<any> {
+export async function findCustomer(nameQuery: string, userId?: string): Promise<any> {
   // Try vector similarity search first (AI-powered semantic matching)
   const queryEmbedding = await generateEmbedding(nameQuery);
 
