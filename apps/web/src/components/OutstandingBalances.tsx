@@ -21,11 +21,11 @@ export default function OutstandingBalances() {
   }
 
   // Calculate outstanding balance per customer
-  const customerBalances = (customersData?.customers || [])
+  const customerBalances = ((customersData?.customers || []) as any[])
     .map(customer => {
-      const customerInvoices = invoicesData?.invoices?.filter(
-        inv => inv.customerId === customer.id && (inv.status === 'SENT' || inv.status === 'OVERDUE')
-      ) || [];
+      const customerInvoices = ((invoicesData?.invoices as any[]) || []).filter(
+        (inv) => inv.customerId === customer.id && (inv.status === 'SENT' || inv.status === 'OVERDUE')
+      );
 
       const totalOwed = customerInvoices.reduce(
         (sum, inv) => sum + parseFloat(inv.total || '0'),

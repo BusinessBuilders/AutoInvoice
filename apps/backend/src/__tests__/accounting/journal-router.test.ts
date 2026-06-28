@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { PrismaClient, AccountType, BalanceType, JournalStatus, JournalSourceType } from '@prisma/client';
+import { journalRouter } from '../../routers/journal';
 
 const prisma = new PrismaClient();
 
-// NOTE: This file tests the business logic that would be used by the journal router.
-// For full tRPC router testing, consider integration tests with a test server.
-
 describe('Journal Router Logic', () => {
   let userId: string;
+  let caller: ReturnType<typeof journalRouter.createCaller>;
   let cashAccountId: string;
   let revenueAccountId: string;
   let arAccountId: string;
@@ -30,9 +29,18 @@ describe('Journal Router Logic', () => {
     });
     userId = user.id;
 
+    // Authenticated tRPC caller for the journal router
+    caller = journalRouter.createCaller({
+      req: {} as any,
+      res: {} as any,
+      userId,
+      prisma,
+    } as any);
+
     // Create test accounts
     const cashAccount = await prisma.account.create({
       data: {
+        userId,
         code: '1010',
         name: 'Cash',
         accountType: AccountType.ASSET,
@@ -44,6 +52,7 @@ describe('Journal Router Logic', () => {
 
     const revenueAccount = await prisma.account.create({
       data: {
+        userId,
         code: '4000',
         name: 'Service Revenue',
         accountType: AccountType.REVENUE,
@@ -55,6 +64,7 @@ describe('Journal Router Logic', () => {
 
     const arAccount = await prisma.account.create({
       data: {
+        userId,
         code: '1200',
         name: 'Accounts Receivable',
         accountType: AccountType.ASSET,
@@ -67,6 +77,7 @@ describe('Journal Router Logic', () => {
 
     const expenseAccount = await prisma.account.create({
       data: {
+        userId,
         code: '5000',
         name: 'Expenses',
         accountType: AccountType.EXPENSE,
@@ -426,6 +437,7 @@ describe('Journal Router Logic', () => {
     it('should find entries by source document', async () => {
       const customer = await prisma.customer.create({
         data: {
+          userId,
           name: 'Test Customer',
           email: 'customer@test.com',
           phone: '555-1234',
@@ -434,6 +446,7 @@ describe('Journal Router Logic', () => {
 
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-001',
           customerId: customer.id,
           issueDate: new Date(),
@@ -450,6 +463,7 @@ describe('Journal Router Logic', () => {
       await prisma.journalEntry.createMany({
         data: [
           {
+            userId,
             entryNumber: 'JE-000001',
             entryDate: new Date(),
             description: 'Recognition',
@@ -458,6 +472,7 @@ describe('Journal Router Logic', () => {
             status: JournalStatus.POSTED,
           },
           {
+            userId,
             entryNumber: 'JE-000002',
             entryDate: new Date(),
             description: 'Payment',
@@ -500,6 +515,7 @@ describe('Journal Router Logic', () => {
       await prisma.journalEntry.createMany({
         data: [
           {
+            userId,
             entryNumber: 'JE-000001',
             entryDate: new Date('2024-01-10'),
             description: 'Older',
@@ -508,6 +524,7 @@ describe('Journal Router Logic', () => {
             status: JournalStatus.POSTED,
           },
           {
+            userId,
             entryNumber: 'JE-000002',
             entryDate: new Date('2024-01-20'),
             description: 'Newer',
@@ -580,6 +597,7 @@ describe('Journal Router Logic', () => {
       await prisma.journalEntry.createMany({
         data: [
           {
+            userId,
             entryNumber: 'JE-000001',
             entryDate: new Date(),
             description: 'Manual',
@@ -587,6 +605,7 @@ describe('Journal Router Logic', () => {
             status: JournalStatus.DRAFT,
           },
           {
+            userId,
             entryNumber: 'JE-000002',
             entryDate: new Date(),
             description: 'Invoice',
@@ -606,6 +625,7 @@ describe('Journal Router Logic', () => {
       await prisma.journalEntry.createMany({
         data: [
           {
+            userId,
             entryNumber: 'JE-000001',
             entryDate: new Date('2024-01-05'),
             description: 'Before',
@@ -613,6 +633,7 @@ describe('Journal Router Logic', () => {
             status: JournalStatus.DRAFT,
           },
           {
+            userId,
             entryNumber: 'JE-000002',
             entryDate: new Date('2024-01-15'),
             description: 'In range',
@@ -620,6 +641,7 @@ describe('Journal Router Logic', () => {
             status: JournalStatus.DRAFT,
           },
           {
+            userId,
             entryNumber: 'JE-000003',
             entryDate: new Date('2024-01-25'),
             description: 'After',

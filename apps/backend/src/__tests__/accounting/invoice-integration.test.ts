@@ -38,6 +38,7 @@ describe('Invoice Accounting Integration', () => {
     // Create test customer
     const customer = await prisma.customer.create({
       data: {
+        userId,
         name: 'Test Customer',
         email: 'customer@test.com',
         phone: '555-1234',
@@ -48,6 +49,7 @@ describe('Invoice Accounting Integration', () => {
     // Create system accounts
     const cashAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.CASH,
         name: 'Cash',
         accountType: AccountType.ASSET,
@@ -59,6 +61,7 @@ describe('Invoice Accounting Integration', () => {
 
     const arAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE,
         name: 'Accounts Receivable',
         accountType: AccountType.ASSET,
@@ -70,6 +73,7 @@ describe('Invoice Accounting Integration', () => {
 
     const revenueAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.SERVICE_REVENUE,
         name: 'Service Revenue',
         accountType: AccountType.REVENUE,
@@ -81,6 +85,7 @@ describe('Invoice Accounting Integration', () => {
 
     const taxAccount = await prisma.account.create({
       data: {
+        userId,
         code: SYSTEM_ACCOUNTS.SALES_TAX_PAYABLE,
         name: 'Sales Tax Payable',
         accountType: AccountType.LIABILITY,
@@ -95,6 +100,7 @@ describe('Invoice Accounting Integration', () => {
     it('should create journal entry when invoice is sent', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-001',
           customerId,
           issueDate: new Date('2024-01-15'),
@@ -134,6 +140,7 @@ describe('Invoice Accounting Integration', () => {
     it('should update account balances when invoice is sent', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-002',
           customerId,
           issueDate: new Date(),
@@ -165,6 +172,7 @@ describe('Invoice Accounting Integration', () => {
     it('should handle sales tax correctly', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-003',
           customerId,
           issueDate: new Date(),
@@ -211,6 +219,7 @@ describe('Invoice Accounting Integration', () => {
     it('should not create duplicate entries for same invoice', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-004',
           customerId,
           issueDate: new Date(),
@@ -245,6 +254,7 @@ describe('Invoice Accounting Integration', () => {
     it('should create journal entry when invoice is paid', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-005',
           customerId,
           issueDate: new Date('2024-01-15'),
@@ -285,6 +295,7 @@ describe('Invoice Accounting Integration', () => {
       // First, recognize the invoice
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-006',
           customerId,
           issueDate: new Date(),
@@ -332,6 +343,7 @@ describe('Invoice Accounting Integration', () => {
       // Start with draft invoice (no journal entries)
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-007',
           customerId,
           issueDate: new Date('2024-01-15'),
@@ -413,6 +425,7 @@ describe('Invoice Accounting Integration', () => {
       // Create and process first invoice
       const invoice1 = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-008',
           customerId,
           issueDate: new Date(),
@@ -430,6 +443,7 @@ describe('Invoice Accounting Integration', () => {
       // Create and process second invoice
       const invoice2 = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-009',
           customerId,
           issueDate: new Date(),
@@ -476,6 +490,7 @@ describe('Invoice Accounting Integration', () => {
     it('should handle invoice with zero tax', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-010',
           customerId,
           issueDate: new Date(),
@@ -504,6 +519,7 @@ describe('Invoice Accounting Integration', () => {
       const date = new Date('2024-01-15');
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-011',
           customerId,
           issueDate: date,
@@ -531,6 +547,7 @@ describe('Invoice Accounting Integration', () => {
     it('should maintain balance integrity with decimal amounts', async () => {
       const invoice = await prisma.invoice.create({
         data: {
+          userId,
           invoiceNumber: 'INV-012',
           customerId,
           issueDate: new Date(),

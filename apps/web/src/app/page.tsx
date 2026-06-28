@@ -200,6 +200,88 @@ export default function Home() {
           </Link>
         </div>
 
+        {/* Business OS */}
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">Business OS</h2>
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <Link
+            href="/jobs"
+            className="relative group bg-gradient-to-br from-emerald-500 to-green-700 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🚜</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Jobs</h3>
+                <p className="text-sm text-emerald-100">Crew packet &amp; routes</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/revenue"
+            className="relative group bg-gradient-to-br from-amber-500 to-yellow-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">💰</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Revenue</h3>
+                <p className="text-sm text-amber-100">Every dollar, every engine</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/subscriptions"
+            className="relative group bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🔁</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Subscriptions</h3>
+                <p className="text-sm text-cyan-100">MRR, renewals, churn</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/orders"
+            className="relative group bg-gradient-to-br from-fuchsia-500 to-pink-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🛒</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Commerce</h3>
+                <p className="text-sm text-fuchsia-100">Products &amp; orders</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/time-clock"
+            className="relative group bg-gradient-to-br from-slate-600 to-gray-800 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🕐</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Time Clock</h3>
+                <p className="text-sm text-slate-200">Who&apos;s on the clock</p>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/attribution"
+            className="relative group bg-gradient-to-br from-rose-500 to-red-600 rounded-lg shadow-lg p-6 hover:shadow-xl transition-all hover:scale-105"
+          >
+            <div className="flex items-center">
+              <div className="text-4xl">🎯</div>
+              <div className="ml-4">
+                <h3 className="text-lg font-semibold text-white">Attribution</h3>
+                <p className="text-sm text-rose-100">CAC, LTV, ROAS</p>
+              </div>
+            </div>
+          </Link>
+        </div>
+
         {/* Stats Cards */}
         <div className="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <div className="bg-white rounded-lg shadow p-6">
@@ -291,7 +373,7 @@ export default function Home() {
             <div className="px-6 py-4">
               {recentInvoicesData?.invoices && recentInvoicesData.invoices.length > 0 ? (
                 <div className="space-y-3">
-                  {recentInvoicesData.invoices.map((invoice) => (
+                  {(recentInvoicesData.invoices as any[]).map((invoice) => (
                     <Link
                       key={invoice.id}
                       href={`/invoices/${invoice.id}`}

@@ -481,4 +481,64 @@ export const authRouter = router({
         message: 'Password reset successful. Please login with your new password.',
       };
     }),
+
+  /** Crew self-signup (spec: EMPLOYEE accounts, no owner dashboard). The invite
+   * code routes the new hire to a specific business: each Company has its own
+   * crewSignupCode. The legacy single CREW_SIGNUP_CODE env var still works as a
+   * fallback that maps to a default company (CREW_DEFAULT_COMPANY_ID, or
+   * donovan-farms) so codes shared before per-business codes existed keep
+   * working. */
+  registerEmployee: publicProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional(),
+        password: z.string().min(6),
+        inviteCode: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // 1. Per-business code on the Company itself.
+      let company = await ctx.prisma.company.findFirst({
+        where: { crewSignupCode: input.inviteCode, active: true },
+        select: { id: true, name: true },
+      });
+      // 2. Backward-compatible global env code → default company.
+      if (!company) {
+        const envCode = process.env.CREW_SIGNUP_CODE;
+        if (envCode && input.inviteCode === envCode) {
+          const defaultId = process.env.CREW_DEFAULT_COMPANY_ID ?? 'donovan-farms';
+          company = await ctx.prisma.company.findFirst({
+            where: { id: defaultId, active: true },
+            select: { id: true, name: true },
+          });
+        }
+      }
+      if (!company) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid invite code' });
+      }
+
+      const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
+      if (existing) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'User with this email already exists' });
+      }
+      const hashedPassword = await bcrypt.hash(input.password, 10);
+      const user = await ctx.prisma.user.create({
+        data: {
+          email: input.email,
+          password: hashedPassword,
+          name: input.name,
+          phone: input.phone,
+          role: 'EMPLOYEE',
+          companyId: company.id, // crew belongs to the business their code maps to
+        },
+      });
+      const tokens = await generateTokens(user.id);
+      return {
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        company: { id: company.id, name: company.name },
+        ...tokens,
+      };
+    }),
 });

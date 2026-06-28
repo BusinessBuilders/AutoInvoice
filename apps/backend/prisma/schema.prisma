@@ -17,6 +17,11 @@ model User {
   role            UserRole  @default(OWNER)
   phone           String?
   active          Boolean   @default(true)
+
+  // Crew membership: which business this user clocks time for.
+  // Null for OWNER/ADMIN, who span every company.
+  companyId       String?
+  company         Company?  @relation("CompanyCrew", fields: [companyId], references: [id])
   emailVerified   Boolean   @default(false)
   emailVerifiedAt DateTime?
   twoFactorEnabled Boolean  @default(false)
@@ -47,6 +52,19 @@ model User {
   @@index([email])
   @@index([role])
   @@index([active])
+
+  activities      Activity[]
+  jobs            Job[]
+  jobAssignments  JobAssignment[]
+  products        Product[]
+  orders          Order[]
+  ingestSources   IngestSource[]
+  subscriptions   Subscription[]
+  adSpends        AdSpend[]
+  timeEntries     TimeEntry[]
+  editedTimeEntries TimeEntry[] @relation("TimeEntryEditor")
+
+  @@index([companyId])
 }
 
 model RefreshToken {
@@ -136,6 +154,20 @@ model Customer {
   @@index([email])
   @@index([phone])
   @@index([name])
+
+  // Business OS: company scoping + first-touch attribution (spec §3.1, §3.8)
+  primaryCompanyId    String?
+  primaryCompany      Company?  @relation("CustomerPrimaryCompany", fields: [primaryCompanyId], references: [id])
+  acquisitionSource   String?
+  acquisitionCampaign String?
+  firstTouchAt        DateTime?
+  revenueEvents       RevenueEvent[]
+  activities          Activity[]
+
+  @@index([primaryCompanyId])
+  jobs                Job[]
+  orders              Order[]
+  subscriptions       Subscription[]
 }
 
 model Service {
@@ -170,6 +202,10 @@ model Service {
   @@index([code])
   @@index([category])
   @@index([customerTag])
+
+  // Business OS pricebook (spec §3.4): COGS per unit; margin = price - cost
+  unitCost        Decimal?
+  quoteLineItems  QuoteLineItem[]
 }
 
 model Invoice {
@@ -237,6 +273,14 @@ model Invoice {
   @@index([status])
   @@index([serviceDate])
   @@index([invoiceNumber])
+
+  // Business OS: company scoping (spec §3.1)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  job             Job?
+  order           Order?
 }
 
 model LineItem {
@@ -419,6 +463,7 @@ model Location {
   updatedAt       DateTime  @updatedAt
 
   @@index([customerId])
+  jobs            Job[]
 }
 
 model PriceOverride {
@@ -677,6 +722,24 @@ model Lead {
   @@index([nextFollowUpAt])
   @@index([createdAt])
   @@index([company])
+
+  // Business OS: company scoping (spec §3.1). NB: `company` is already the
+  // business-card company-name string, hence companyRel.
+  companyId       String?
+  companyRel      Company?  @relation(fields: [companyId], references: [id])
+  activities      Activity[]
+
+  @@index([companyId])
+  subscriptions   Subscription[]
+
+  // Business OS attribution (spec §3.8): UTM finer-grained than `source`
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+  landingPage     String?
+  referrer        String?
 }
 
 model Reminder {
@@ -791,6 +854,13 @@ model Quote {
   @@index([customerId])
   @@index([status])
   @@index([validUntil])
+
+  // Business OS: company scoping (spec §3.1)
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  jobs            Job[]
 }
 
 model QuoteLineItem {
@@ -810,6 +880,11 @@ model QuoteLineItem {
   updatedAt       DateTime  @updatedAt
 
   @@index([quoteId])
+
+  // Business OS pricebook (spec §3.4): cost snapshot at quote time
+  serviceId       String?
+  service         Service?  @relation(fields: [serviceId], references: [id])
+  unitCost        Decimal?
 }
 
 model LeadNote {
@@ -1281,6 +1356,12 @@ model Company {
   // Settings
   active          Boolean   @default(true)
 
+  // Per-business crew invite code. The code a crew member types at
+  // /crew/signup routes them to THIS company (replaces the single global
+  // CREW_SIGNUP_CODE env var, which still works as a fallback to a default
+  // company for backward compatibility).
+  crewSignupCode  String?   @unique
+
   // Relations
   bankAccounts    BankAccount[]
   taxAccounts     TaxAccount[]
@@ -1294,6 +1375,22 @@ model Company {
 
   @@index([userId])
   @@index([active])
+
+  // Business OS relations (spec §3.1)
+  primaryCustomers Customer[] @relation("CustomerPrimaryCompany")
+  invoices         Invoice[]
+  leads            Lead[]
+  quotes           Quote[]
+  revenueEvents    RevenueEvent[]
+  activities       Activity[]
+  jobs             Job[]
+  products         Product[]
+  orders           Order[]
+  ingestSources    IngestSource[]
+  subscriptions    Subscription[]
+  adSpends         AdSpend[]
+  crew             User[]        @relation("CompanyCrew")
+  timeEntries      TimeEntry[]
 }
 
 model TaxAccount {
@@ -1546,4 +1643,432 @@ model ReconciliationLog {
   @@unique([companyId, throughDate])
   @@index([companyId, throughDate(sort: Desc)])
   @@map("reconciliation_log")
+}
+
+// ============ Business OS (Phase 1) ============
+
+enum RevenueEngine {
+  FIELD_SERVICE // Donovan Farms jobs
+  SUBSCRIPTION  // Business Builders recurring
+  COMMERCE      // online product sales
+  SERVICES      // generic invoiced work (legacy/default)
+  OTHER         // partnerships, licensing, manual
+}
+
+enum RevenueEventType {
+  INVOICE_PAYMENT
+  ORDER_PAYMENT
+  SUBSCRIPTION_RENEWAL
+  REFUND
+  ADJUSTMENT
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  SMS
+  MEETING
+  SITE_VISIT
+  NOTE
+  SYSTEM
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// ============ NEW MODELS ============
+
+// The Revenue Event spine (docs/BUSINESS_OS_SPEC.md §3.2). Written ONLY by
+// services/revenue-events.ts. Unique constraint = idempotency.
+model RevenueEvent {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id])
+  customerId  String?
+  customer    Customer?        @relation(fields: [customerId], references: [id])
+  engine      RevenueEngine
+  eventType   RevenueEventType
+  sourceType  String           // "invoice" | "order" | "subscription" | "manual" | future
+  sourceId    String
+  amount      Decimal          // negative for REFUND
+  currency    String           @default("USD")
+  occurredAt  DateTime
+  description String?
+  // first-touch attribution snapshot (Phase 5 fills these)
+  attributionSource   String?
+  attributionCampaign String?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+
+  @@unique([sourceType, sourceId, eventType])
+  @@index([companyId, occurredAt])
+  @@index([customerId])
+  @@index([engine, occurredAt])
+}
+
+// Activity + communications log (spec §3.3)
+model Activity {
+  id         String             @id @default(cuid())
+  userId     String
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId  String?
+  company    Company?           @relation(fields: [companyId], references: [id])
+  customerId String?
+  customer   Customer?          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  leadId     String?
+  lead       Lead?              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type       ActivityType
+  direction  ActivityDirection?
+  subject    String?
+  body       String
+  occurredAt DateTime           @default(now())
+  source     String             @default("manual") // "manual" | "api" | "eve" | "automation" | "system"
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+
+  @@index([customerId, occurredAt])
+  @@index([leadId, occurredAt])
+  @@index([companyId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+// ============ Business OS (Phase 2): field-service jobs ============
+
+enum JobStatus {
+  REQUESTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CLOSED
+  CANCELLED
+}
+
+// Field-service job (spec §3.4): Request -> Quote -> Job -> Closeout -> auto-Invoice.
+// CLOSED requires closeout and creates the linked Invoice; payment of that
+// invoice emits the FIELD_SERVICE RevenueEvent (jobs never write the spine).
+model Job {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id])
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  locationId     String?
+  location       Location? @relation(fields: [locationId], references: [id])
+  quoteId        String?
+  quote          Quote?    @relation(fields: [quoteId], references: [id])
+
+  jobNumber      String
+  title          String
+  description    String?
+  status         JobStatus @default(REQUESTED)
+
+  // Scheduling + route/day view
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  routeOrder     Int?
+
+  // Costing
+  estimatedCost  Decimal?
+  actualCost     Decimal?
+
+  // Closeout (the crew packet)
+  completedAt    DateTime?
+  closeoutNotes  String?
+  checklist      Json?     // [{item, done, doneAt, by}]
+  customerNotes  String?
+
+  invoiceId      String?   @unique
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  assignments    JobAssignment[]
+  photos         JobPhoto[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, jobNumber])
+  @@index([companyId, status])
+  @@index([scheduledStart])
+  @@index([customerId])
+}
+
+model JobAssignment {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String?  // "lead" | "crew"
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, userId])
+  @@index([userId])
+}
+
+model JobPhoto {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  imageUrl  String?
+  imageData Bytes?
+  caption   String?
+  phase     String   @default("after") // "before" | "during" | "after"
+  takenAt   DateTime @default(now())
+
+  @@index([jobId])
+}
+
+// ============ Business OS (Phase 3): commerce ============
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  PARTIALLY_REFUNDED
+  REFUNDED
+  CANCELLED
+}
+
+// Inventory-lite product catalog (spec §3.5): a stock counter, not a WMS.
+model Product {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id])
+  sku               String
+  name              String
+  description       String?
+  price             Decimal
+  cogs              Decimal?
+  stockQty          Int      @default(0)
+  lowStockThreshold Int      @default(0) // 0 = no restock alerts
+  active            Boolean  @default(true)
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  orderItems        OrderItem[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, active])
+}
+
+// Orders ingested from online stores (spec §3.5/3.6). Idempotent on
+// (companyId, source, externalId); PAID auto-creates Invoice + RevenueEvent.
+model Order {
+  id             String      @id @default(cuid())
+  userId         String
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id])
+  customerId     String?
+  customer       Customer?   @relation(fields: [customerId], references: [id])
+  source         String      // IngestSource.key ("stripe" | "shopify" | site key)
+  externalId     String
+  status         OrderStatus
+  currency       String      @default("USD")
+  subtotal       Decimal     @default(0)
+  taxAmount      Decimal     @default(0)
+  shippingAmount Decimal     @default(0)
+  discountAmount Decimal     @default(0)
+  total          Decimal
+  refundedAmount Decimal     @default(0)
+  placedAt       DateTime
+  paidAt         DateTime?
+  fulfilledAt    DateTime?
+  invoiceId      String?     @unique
+  invoice        Invoice?    @relation(fields: [invoiceId], references: [id])
+  // first-touch attribution (spec §3.8; Lead gets the same block in Phase 5)
+  utmSource      String?
+  utmMedium      String?
+  utmCampaign    String?
+  utmTerm        String?
+  utmContent     String?
+  landingPage    String?
+  referrer       String?
+  needsReview    Boolean     @default(false) // unknown SKU / unmatched customer
+  rawPayload     Json
+  items          OrderItem[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([companyId, source, externalId])
+  @@index([companyId, placedAt])
+  @@index([customerId])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  sku       String
+  name      String
+  quantity  Int
+  unitPrice Decimal
+  unitCogs  Decimal? // snapshot of Product.cogs at ingestion
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Per-store webhook credentials (spec §3.6)
+model IngestSource {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id])
+  key        String    @unique // :sourceKey in the webhook URL
+  name       String
+  kind       String    // "stripe" | "shopify" | "custom"
+  secret     String    // HMAC-SHA256 secret
+  active     Boolean   @default(true)
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([companyId])
+}
+
+// ============ Business OS (Phase 4): recurring revenue ============
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  PAUSED
+  CANCELLED
+}
+
+enum BillingInterval {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+// Recurring revenue (spec §3.7): renewals create PAID invoices (source
+// "subscription") and SUBSCRIPTION_RENEWAL revenue events; dunning and churn
+// flags drive the Phase 6 automations.
+model Subscription {
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId         String
+  company           Company            @relation(fields: [companyId], references: [id])
+  customerId        String
+  customer          Customer           @relation(fields: [customerId], references: [id])
+  leadId            String?            // origin of the deal
+  lead              Lead?              @relation(fields: [leadId], references: [id])
+
+  name              String             // "Acme — hosting + automation"
+  status            SubscriptionStatus @default(ACTIVE)
+  interval          BillingInterval    @default(MONTHLY)
+  amount            Decimal            // per interval
+  currency          String             @default("USD")
+
+  startDate         DateTime
+  currentPeriodEnd  DateTime           // next renewal due date
+  cancelAtPeriodEnd Boolean            @default(false)
+  cancelledAt       DateTime?
+
+  churnRisk         Boolean            @default(false)
+  churnReason       String?
+  dunningStage      Int                @default(0) // 0 none; 1..3 escalating
+  lastPaymentAt     DateTime?
+  externalRef          String?         // Stripe subscription id (set by webhook)
+  stripePaymentLinkUrl String?         // recurring payment link for the customer
+  notes             String?
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([companyId, status])
+  @@index([currentPeriodEnd])
+  @@index([customerId])
+}
+
+// ============ Business OS (Phase 5): marketing attribution ============
+
+// Daily ad spend per channel/campaign (spec §3.8): the denominator for CAC
+// and ROAS. channel matches utmSource values ("facebook", "google", ...).
+model AdSpend {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  date        DateTime @db.Date
+  channel     String
+  campaign    String   @default("") // "" = unattributed-to-campaign spend
+  spend       Decimal
+  clicks      Int?
+  impressions Int?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@unique([companyId, date, channel, campaign])
+  @@index([companyId, date])
+}
+
+// ============ Business OS (Phase 6): automations ============
+
+// Fire-once ledger for automation rules (spec §3.10). The unique key embeds
+// the stage where a rule escalates (e.g. "dunning:2").
+model AutomationLog {
+  id         String   @id @default(cuid())
+  rule       String   // "aging_quote_nudge" | "post_job_review" | "renewal_reminder" | "dunning:<n>" | "churn_risk" | "restock"
+  entityType String   // "quote" | "job" | "subscription" | "product"
+  entityId   String
+  companyId  String?
+  firedAt    DateTime @default(now())
+  result     Json?
+
+  @@unique([rule, entityType, entityId])
+  @@index([companyId, firedAt])
+}
+
+// ============ Business OS: time clock (per .planning/spec-time-clock-service-hub.md §3.3,
+// extended with GPS stamps per 2026-06-11 decision: location at punch events, not
+// continuous tracking) ============
+
+model TimeEntry {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+
+  // Business this shift is worked for. Copied from the user's companyId at
+  // clock-in; null for owner/admin punches or pre-migration rows.
+  companyId    String?
+  company      Company?  @relation(fields: [companyId], references: [id])
+
+  clockIn      DateTime
+  clockOut     DateTime?
+  totalMinutes Int?      // server-calculated on clockOut, never client-sent
+
+  notes        String?   // optional clock-out note from the employee
+
+  // Admin edit audit (forgotten punches, corrections, manual backfill).
+  // editedById is the owner/admin who last changed this entry.
+  editedById   String?
+  editedBy     User?     @relation("TimeEntryEditor", fields: [editedById], references: [id])
+  editedAt     DateTime?
+
+  // GPS stamps (decimal degrees) captured at punch time when the phone allows it
+  clockInLat   Decimal?
+  clockInLng   Decimal?
+  clockOutLat  Decimal?
+  clockOutLng  Decimal?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([clockIn])
 }

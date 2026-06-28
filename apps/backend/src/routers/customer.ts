@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, publicProcedure } from '../trpc';
 import { generateCustomerEmbedding } from '../services/embeddings';
 import { Prisma } from '@prisma/client';
@@ -188,6 +189,99 @@ export const customerRouter = router({
         },
         take: 10,
       });
+    }),
+
+  // Customer 360 timeline (spec §3.3): merged, time-ordered history across all
+  // engines. Extended by jobs (P2), orders (P3), subscriptions (P4).
+  timeline: protectedProcedure
+    .input(
+      z.object({
+        customerId: z.string(),
+        limit: z.number().int().min(1).max(100).default(50),
+        before: z.coerce.date().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const customer = await ctx.prisma.customer.findFirst({
+        where: { id: input.customerId, userId: ctx.userId },
+        select: { id: true, name: true, primaryCompanyId: true },
+      });
+      if (!customer) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Customer not found' });
+      }
+
+      const timeFilter = input.before ? { lt: input.before } : undefined;
+      const take = input.limit;
+
+      const [invoices, quotes, leads, activities, revenueEvents] = await Promise.all([
+        ctx.prisma.invoice.findMany({
+          where: { customerId: customer.id, ...(timeFilter ? { issueDate: timeFilter } : {}) },
+          select: { id: true, invoiceNumber: true, status: true, total: true, issueDate: true, companyId: true },
+          orderBy: { issueDate: 'desc' },
+          take,
+        }),
+        ctx.prisma.quote.findMany({
+          where: { customerId: customer.id, ...(timeFilter ? { createdAt: timeFilter } : {}) },
+          select: { id: true, quoteNumber: true, status: true, total: true, createdAt: true, companyId: true },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        ctx.prisma.lead.findMany({
+          where: { convertedToCustomerId: customer.id, ...(timeFilter ? { createdAt: timeFilter } : {}) },
+          select: { id: true, name: true, status: true, source: true, createdAt: true, companyId: true },
+          orderBy: { createdAt: 'desc' },
+          take,
+        }),
+        ctx.prisma.activity.findMany({
+          where: { customerId: customer.id, ...(timeFilter ? { occurredAt: timeFilter } : {}) },
+          select: { id: true, type: true, subject: true, body: true, occurredAt: true, source: true, companyId: true },
+          orderBy: { occurredAt: 'desc' },
+          take,
+        }),
+        ctx.prisma.revenueEvent.findMany({
+          where: { customerId: customer.id, ...(timeFilter ? { occurredAt: timeFilter } : {}) },
+          select: { id: true, engine: true, eventType: true, amount: true, occurredAt: true, description: true, companyId: true },
+          orderBy: { occurredAt: 'desc' },
+          take,
+        }),
+      ]);
+
+      type TimelineItem = {
+        kind: 'invoice' | 'quote' | 'lead' | 'activity' | 'revenue_event';
+        id: string;
+        at: Date;
+        title: string;
+        amount?: number;
+        status?: string;
+        companyId?: string | null;
+      };
+
+      const items: TimelineItem[] = [
+        ...invoices.map((i): TimelineItem => ({
+          kind: 'invoice', id: i.id, at: i.issueDate,
+          title: `Invoice ${i.invoiceNumber}`, amount: Number(i.total), status: i.status, companyId: i.companyId,
+        })),
+        ...quotes.map((q): TimelineItem => ({
+          kind: 'quote', id: q.id, at: q.createdAt,
+          title: `Quote ${q.quoteNumber}`, amount: Number(q.total), status: q.status, companyId: q.companyId,
+        })),
+        ...leads.map((l): TimelineItem => ({
+          kind: 'lead', id: l.id, at: l.createdAt,
+          title: `Lead (${l.source})`, status: l.status, companyId: l.companyId,
+        })),
+        ...activities.map((a): TimelineItem => ({
+          kind: 'activity', id: a.id, at: a.occurredAt,
+          title: a.subject ?? `${a.type.toLowerCase()}: ${a.body.slice(0, 80)}`, status: a.type, companyId: a.companyId,
+        })),
+        ...revenueEvents.map((e): TimelineItem => ({
+          kind: 'revenue_event', id: e.id, at: e.occurredAt,
+          title: e.description ?? `${e.engine} ${e.eventType}`, amount: Number(e.amount), status: e.eventType, companyId: e.companyId,
+        })),
+      ]
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .slice(0, input.limit);
+
+      return { customer, items };
     }),
 
   // Public endpoint for plow route - no auth required

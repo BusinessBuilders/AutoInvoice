@@ -14,9 +14,8 @@ const server = new Server(
   { capabilities: { tools: {}, resources: {} } }
 );
 
-// Tool registry — populated by Tasks 7-14
-const TOOLS: Array<{ name: string; description: string; inputSchema: object }> = [];
-const HANDLERS: Record<string, (input: unknown) => Promise<unknown>> = {};
+// Tool registry — shared with the agent CLI (cli.ts); see registry.ts
+import { TOOLS, HANDLERS } from "./registry.js";
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
@@ -65,35 +64,6 @@ server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
     contents: [{ uri, mimeType: "application/json", text: content }],
   };
 });
-
-// Tool registrations
-import { listCompaniesHandler, toolSpec as listCompaniesSpec } from "./tools/list_companies.js";
-TOOLS.push(listCompaniesSpec);
-HANDLERS["list_companies"] = listCompaniesHandler;
-
-import { getPulseHandler, toolSpec as getPulseSpec } from "./tools/get_pulse.js";
-TOOLS.push(getPulseSpec);
-HANDLERS["get_pulse"] = getPulseHandler;
-
-import { getCompanyCashflowHandler, toolSpec as getCompanyCashflowSpec } from "./tools/get_company_cashflow.js";
-TOOLS.push(getCompanyCashflowSpec);
-HANDLERS["get_company_cashflow"] = getCompanyCashflowHandler;
-
-import { getSuperNovaBurnHandler, toolSpec as getSuperNovaBurnSpec } from "./tools/get_super_nova_burn.js";
-TOOLS.push(getSuperNovaBurnSpec);
-HANDLERS["get_super_nova_burn"] = getSuperNovaBurnHandler;
-
-import { getDsoHandler, toolSpec as getDsoSpec } from "./tools/get_dso.js";
-TOOLS.push(getDsoSpec);
-HANDLERS["get_dso"] = getDsoHandler;
-
-import { projectCashHandler, toolSpec as projectCashSpec } from "./tools/project_cash.js";
-TOOLS.push(projectCashSpec);
-HANDLERS["project_cash"] = projectCashHandler;
-
-import { markReconciliationHandler, toolSpec as markReconciliationSpec } from "./tools/mark_reconciliation.js";
-TOOLS.push(markReconciliationSpec);
-HANDLERS["mark_reconciliation"] = markReconciliationHandler;
 
 // Transport startup
 const MODE = (process.env.AUTOINVOICE_MCP_MODE ?? "stdio").toLowerCase();

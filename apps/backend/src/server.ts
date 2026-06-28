@@ -20,6 +20,54 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// Business OS order ingestion (spec §3.6) - raw body for HMAC verification,
+// MUST be before body parsing middleware
+app.get('/webhook/orders/health', (_req, res) => res.json({ status: 'ok' }));
+app.post(
+  '/webhook/orders/:sourceKey',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const { handleOrderWebhook } = await import('./services/commerce/webhook');
+    return handleOrderWebhook(req, res);
+  }
+);
+
+// Eve / agent invoicing — structured DRAFT invoice creation. Service-token auth.
+app.post('/invoices/structured', express.json(), async (req, res) => {
+  const expected = process.env.AUTOINVOICE_SERVICE_TOKEN;
+  if (!expected) return res.status(503).json({ error: 'Agent invoicing not enabled (AUTOINVOICE_SERVICE_TOKEN unset)' });
+  if (req.headers.authorization !== `Bearer ${expected}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const { createStructuredInvoice, StructuredInvoiceError } = await import('./services/eve-invoice');
+  try {
+    const b = req.body ?? {};
+    const result = await createStructuredInvoice({
+      customer: b.customer ?? {},
+      lineItems: b.line_items ?? [],
+      serviceAddress: b.service_address,
+      serviceDate: b.service_date,
+      companyId: b.company_id,
+      confirmCreateCustomer: b.confirm_create_customer === true,
+    });
+    if (!result.ok) return res.status(200).json(result); // customer_confirmation signal
+    const inv = result.invoice;
+    return res.status(201).json({
+      ok: true,
+      invoice_id: inv.id,
+      invoice_number: inv.invoiceNumber,
+      status: inv.status,
+      company_id: inv.companyId,
+      customer: { id: inv.customer.id, name: inv.customer.name },
+      total_cents: Math.round(Number(inv.total) * 100),
+      line_items: inv.lineItems.map((li: any) => ({ description: li.description, quantity: Number(li.quantity), rate_cents: Math.round(Number(li.rate) * 100), amount_cents: Math.round(Number(li.amount) * 100) })),
+    });
+  } catch (e: any) {
+    const status = e instanceof StructuredInvoiceError ? e.status : 500;
+    return res.status(status).json({ error: e?.message ?? 'Failed to create invoice' });
+  }
+});
+
 // Stripe webhook - MUST be before body parsing middleware
 // Stripe requires raw body for signature verification
 app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -71,6 +119,24 @@ app.post('/webhook/stripe', express.raw({ type: 'application/json' }), async (re
             });
             logger.info('PlowBilling marked as PAID:', { billingId: billing.id });
           }
+        }
+        break;
+      }
+
+      case 'invoice.paid':
+      case 'invoice.payment_failed': {
+        const inv = event.data.object as Stripe.Invoice;
+        const stripeSubId = typeof (inv as any).subscription === 'string' ? (inv as any).subscription : (inv as any).subscription?.id;
+        if (stripeSubId) {
+          const { handleStripeSubscriptionEvent } = await import('./services/subscriptions');
+          const result = await handleStripeSubscriptionEvent({
+            type: event.type,
+            stripeSubscriptionId: stripeSubId,
+            metadataSubscriptionId: (inv as any).subscription_details?.metadata?.autoinvoiceSubscriptionId
+              ?? (inv.metadata as any)?.autoinvoiceSubscriptionId ?? null,
+            paidAt: new Date(((inv as any).status_transitions?.paid_at ?? event.created) * 1000),
+          });
+          if (result) logger.info(`Stripe ${event.type} → subscription synced`, { stripeSubId });
         }
         break;
       }

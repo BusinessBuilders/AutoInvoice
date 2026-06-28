@@ -7,6 +7,7 @@ import {
 } from '../services/accounting/journal-service';
 import logger from '../utils/logger';
 import { calculateDueDate } from '../utils/payment-terms';
+import { emitInvoicePaymentEvent } from '../services/revenue-events';
 
 const lineItemSchema = z.object({
   serviceId: z.string().nullish(),
@@ -373,6 +374,19 @@ export const invoiceRouter = router({
           invoiceNumber: updatedInvoice.invoiceNumber,
           error: error instanceof Error ? error.message : 'Unknown error',
         });
+      }
+
+      // Revenue Event spine (spec §3.2): every PAID invoice emits exactly one
+      // INVOICE_PAYMENT event. Idempotent; analytics must never fail a payment.
+      if (input.status === InvoiceStatus.PAID) {
+        try {
+          await emitInvoicePaymentEvent(updatedInvoice.id);
+        } catch (error) {
+          logger.error('Failed to emit revenue event for invoice', {
+            invoiceId: updatedInvoice.id,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
       }
 
       return updatedInvoice;

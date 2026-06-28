@@ -28,6 +28,16 @@ import { taxReportsRouter } from './taxReports';
 import { bankAccountsRouter } from './bankAccounts';
 import { vendorsRouter } from './vendors';
 import { paymentsRouter } from './payments';
+// Business OS module routers
+import { activityRouter } from './activity';
+import { revenueEventsRouter } from './revenueEvents';
+import { jobRouter } from './job';
+import { productRouter } from './product';
+import { orderRouter } from './order';
+import { subscriptionRouter } from './subscription';
+import { adSpendRouter } from './adSpend';
+import { companyRouter } from './company';
+import { timeClockRouter } from './timeClock';
 
 export const appRouter = router({
   auth: authRouter,
@@ -59,6 +69,16 @@ export const appRouter = router({
   bankAccounts: bankAccountsRouter,
   vendors: vendorsRouter,
   payments: paymentsRouter,
+  // Business OS module
+  activity: activityRouter,
+  revenueEvents: revenueEventsRouter,
+  job: jobRouter,
+  product: productRouter,
+  order: orderRouter,
+  subscription: subscriptionRouter,
+  adSpend: adSpendRouter,
+  company: companyRouter,
+  timeClock: timeClockRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -1,6 +1,6 @@
 import { generateCustomerStatement } from '../services/pdf/statement-generator';
+import { PDFParse } from 'pdf-parse';
 import * as fs from 'fs';
-import * as path from 'path';
 
 /**
  * Customer Statement Tests
@@ -60,8 +60,34 @@ describe('Customer Statement PDF Generator', () => {
     const fileContent = fs.readFileSync(pdfPath);
     expect(fileContent.toString('utf-8', 0, 4)).toBe('%PDF');
 
-    // Verify file size is reasonable (at least 5KB for a statement)
-    expect(fileContent.length).toBeGreaterThan(5000);
+    // Verify file size is reasonable. pdf-lib uses non-embedded standard
+    // fonts (Helvetica), so a complete one-page statement is ~2.5KB — assert
+    // it is non-trivial rather than an arbitrary 5KB floor, and verify the
+    // actual rendered content below instead.
+    expect(fileContent.length).toBeGreaterThan(2000);
+
+    // Verify the statement actually rendered the invoices and summary by
+    // extracting the PDF text content.
+    const parser = new PDFParse({ data: new Uint8Array(fileContent) });
+    const { text } = await parser.getText();
+
+    expect(text).toContain('STATEMENT OF ACCOUNT');
+    expect(text).toContain('John Doe');
+    expect(text).toContain('Doe Enterprises');
+
+    // Summary amounts
+    expect(text).toContain('$1250.00');
+    expect(text).toContain('$750.00');
+
+    // Both invoice rows rendered
+    expect(text).toContain('INV-001');
+    expect(text).toContain('$500.00');
+    expect(text).toContain('SENT');
+    expect(text).toContain('INV-002');
+    expect(text).toContain('OVERDUE (15d)');
+
+    // Overdue notice rendered (overdueAmount > 0)
+    expect(text).toContain('PAYMENT PAST DUE');
 
     // Cleanup
     fs.unlinkSync(pdfPath);

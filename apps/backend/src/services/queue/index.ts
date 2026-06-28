@@ -3,6 +3,7 @@ import { pdfGenerationWorker } from './jobs/pdf-generation';
 import { emailSendingWorker } from './jobs/email-sending';
 import { ocrProcessingWorker } from './jobs/ocr-processing';
 import { paymentReminderWorker } from './jobs/payment-reminders';
+import { automationsWorker, scheduleAutomations } from './jobs/automations';
 import logger from '../../utils/logger';
 
 // Initialize all workers
@@ -11,6 +12,11 @@ export function initializeWorkers() {
 
   // Workers are already initialized in their respective files
   // This function serves as a central initialization point
+
+  // Business OS automations: hourly repeatable sweep (spec §3.10)
+  scheduleAutomations().catch((err) =>
+    logger.error('Failed to schedule automations sweep', { error: err?.message })
+  );
 
   logger.info('✅ All BullMQ workers initialized');
 }

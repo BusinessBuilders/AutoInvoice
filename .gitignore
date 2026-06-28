@@ -68,3 +68,7 @@ claudedocs/
 
 # Test scripts
 apps/backend/scripts/
+.jest-test-db-url
+
+# Crew signup flyers contain live invite codes — never commit
+docs/crew-flyers/
